@@ -1,0 +1,30 @@
+# Template: tools/release.py replaces the source checksum before makepkg.
+pkgname=discord-backup-linux
+pkgver=1.4.0
+pkgrel=1
+pkgdesc='Discord account backups and local recovery tools for Linux'
+arch=('any')
+url='https://github.com/EasyAntiCheatSoftware/discord-backup-linux'
+license=('AGPL-3.0-only')
+depends=('python>=3.10' 'gnupg>=2.4' 'python-requests')
+source=("$pkgname-$pkgver.tar.gz")
+# This placeholder deliberately fails if the recipe is used without release.py.
+sha256sums=('@SOURCE_SHA256@')
+
+check() {
+    cd "$srcdir/$pkgname-$pkgver"
+    PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v
+}
+
+package() {
+    cd "$srcdir/$pkgname-$pkgver"
+    install -Dm644 main.py "$pkgdir/usr/lib/$pkgname/main.py"
+    install -d "$pkgdir/usr/lib/$pkgname/discord_backup"
+    install -m644 discord_backup/*.py "$pkgdir/usr/lib/$pkgname/discord_backup/"
+    install -Dm755 packaging/arch/discord-backup "$pkgdir/usr/bin/discord-backup"
+    install -Dm644 packaging/discord-backup.desktop "$pkgdir/usr/share/applications/discord-backup.desktop"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 UNLOCK_BACKUP.md "$pkgdir/usr/share/doc/$pkgname/UNLOCK_BACKUP.md"
+    install -Dm644 NOTICE "$pkgdir/usr/share/doc/$pkgname/NOTICE"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

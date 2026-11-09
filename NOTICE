@@ -1,0 +1,19 @@
+Discord Backup Linux 1.3.1
+
+Linux-native reimplementation inspired by ItsChasa's Discord-Backup:
+https://github.com/itschasa/Discord-Backup
+
+Upstream source headers state:
+Copyright (C) 2021 github.com/ItsChasa
+GNU Affero General Public License v3.0
+
+The Linux implementation uses the same documented backup concepts and legacy
+JSON field names. It was implemented from inspection of the upstream README,
+backup.py, restore.py, main.py and fetch_tokens.py. The upstream repository could
+not be cloned in the build environment; this is a standalone reimplementation,
+not a git checkout or an official upstream release. Its README labels the
+repository GPL-3.0; its Python source headers specify AGPL-3.0. This distribution
+uses AGPL-3.0-only consistently with those source headers.
+
+Discord is a trademark of Discord Inc. This project is not affiliated with or
+endorsed by Discord or the upstream author.

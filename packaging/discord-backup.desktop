@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Discord Backup
+Comment=Back up your account and generate a local recovery guide
+Exec=discord-backup
+Icon=utilities-terminal
+Terminal=true
+Categories=Utility;Archiving;
