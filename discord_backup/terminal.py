@@ -3,7 +3,9 @@
 
 import builtins
 import os
+import shutil
 import sys
+import textwrap
 import threading
 
 STYLES = {"cyan": "96", "green": "92", "yellow": "93", "red": "91", "purple": "95",
@@ -40,7 +42,7 @@ class Console:
                 style = "yellow"
             elif text.startswith(("Saved", "Encrypted backup:", "Recovery page:", "Folder layout restored", "Favourite GIF settings restored")):
                 style = "green"
-            elif text.startswith(("Saving ", "Servers [", "Groups [", "Scanning ", "Checking ")):
+            elif text.startswith(("Saving ", "Servers [", "Groups [", "Scanning ", "Checking ", "ETA for ", "Estimating ")):
                 style = "cyan"
             elif text.startswith("Backing up "):
                 style = "purple"
@@ -51,6 +53,9 @@ class Console:
         return builtins.input(self.paint(prompt, "cyan"))
 
     def log(self, message):
+        if message.startswith("Warning:"):
+            width = max(40, min(120, shutil.get_terminal_size(fallback=(100, 24)).columns))
+            message = textwrap.fill(clean(message), width=width, subsequent_indent="    ")
         self.print(message, flush=True)
 
     def banner(self, version, directory):
@@ -90,7 +95,19 @@ class Console:
                 phase = max(phases, key=phases.get)
                 self.print(f"  Slowest stage  {phase} ({phases[phase]:.2f}s)", style="dim")
         if data.get("warnings"):
-            self.print(f"  Warnings       {len(data['warnings'])} (saved inside the encrypted backup)", style="yellow")
+            width = max(40, min(120, shutil.get_terminal_size(fallback=(100, 24)).columns))
+            self.print(f"\n  Warnings ({len(data['warnings'])})", style="yellow")
+            affected = [key.replace("-", " ") + f" ({value})" for key, value in data.get("sections", {}).items()
+                        if value in ("partial", "interrupted", "pending")]
+            if affected:
+                self.print(textwrap.fill("Sections needing attention: " + ", ".join(affected),
+                           width=width, initial_indent="  ", subsequent_indent="    "), style="yellow")
+            for warning in data["warnings"]:
+                self.print(textwrap.fill(clean(warning), width=width, initial_indent="  • ",
+                           subsequent_indent="    "), style="yellow")
+            for instruction in ("Completed data is kept in the encrypted file. Unlock/export it to recover what was saved.",
+                                "Missing data needs a new backup; rerunning does not resume this file."):
+                self.print(textwrap.fill(instruction, width=width, initial_indent="  ", subsequent_indent="    "), style="dim")
 
 
 console = Console()

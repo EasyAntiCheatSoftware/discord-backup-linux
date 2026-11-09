@@ -12,6 +12,7 @@ All launchers converge on `discord_backup.cli.main`: `run.sh`, `main.py`, `pytho
 | `storage.py` | XDG paths, private atomic writes, file/schema validation and private credential reads |
 | `restore.py` | Escaped local recovery page, folder planning, account checks, encrypted rollback and verified writes |
 | `schedule.py` | Quoted systemd user service/timer generation |
+| `progress.py` | Current-account workload and latency estimates without extra requests or saved history |
 | `terminal.py` | Colors, terminal control filtering and summaries |
 | `tools/release.py` | Source manifest verification, deterministic archive and clean publication staging |
 | `tools/package.py` | Installed-file comparison and public Arch metadata normalization |
@@ -35,3 +36,9 @@ Restore uses fixed account-relative routes. It independently authenticates the l
 ## Publication boundary
 
 Runtime data belongs in XDG storage, outside source. Source archives use only `release-files.txt`, not recursive directory copying or Git ignore rules. Public package contents are compared byte-for-byte with that source. Public metadata excludes local paths, builder identity and installed-package inventory. Exact Git tree and build assets are checked separately before upload; old local archives and security-tool state are never copied.
+
+## Time estimates and documentation images
+
+The collector discovers relationships, servers and DM/group contacts before profile/settings and invitation work. Once both membership lookups succeed, it forecasts remaining serial reads, invitation batches and checkpoints using the current run's measured HTTP/encryption timings. A read-only limiter snapshot contributes known invite pauses and serial-mode changes. Estimates do not reserve budgets, send requests, change pacing or persist account identifiers/history. Discovery failures explicitly suppress numeric estimates. New limits and variable request costs can still make a guess inaccurate.
+
+`tools/screenshots.py` runs the real CLI in private pseudo-terminals with fake transports and a blocked network connection path. A fixed neutral palette and Noto Sans Mono render that output to PNG through Pillow. No desktop or user terminal configuration is captured. Demonstration backups and credentials are temporary; only the synthetic screenshots are publication assets under `builds/v1.5.0/screenshots`. Install Pillow and Noto Sans Mono only if regenerating these developer assets.

@@ -13,7 +13,7 @@ import warnings
 
 from . import __version__
 from .api import DiscordClient, DiscordError
-from .backup import Collector
+from .backup import BackupInterrupted, Collector
 from .encryption import validate_passphrase
 from .restore import export_recovery, restore_folders, restore_gifs, summary
 from .schedule import install_schedule, passphrase_path, token_path
@@ -183,8 +183,13 @@ def execute(args):
     if args.command == "backup":
         with client_for(args) as client:
             password = passphrase_for(args, creating=True)
-            path, data = Collector(client, args.output, passphrase=password, create_invites=not args.no_invites,
-                                   workers=args.workers, log=console.log).run()
+            collector = Collector(client, args.output, passphrase=password, create_invites=not args.no_invites,
+                                  workers=args.workers, log=console.log)
+            try:
+                path, data = collector.run()
+            except BackupInterrupted:
+                console.backup_summary(summary(collector.data))
+                raise
         print(f"Saved: {path}")
         console.backup_summary(summary(data))
         return 0 if data["status"] == "complete" else 2

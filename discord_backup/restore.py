@@ -21,6 +21,7 @@ def summary(data):
         "folders": len(data["guild_folders"]) if data.get("guild_folders") is not None else "unavailable",
         "favourite_gifs": "saved" if "settings" in data else "unavailable",
         "warnings": data.get("warnings", []),
+        "sections": data.get("sections", {}),
         **{key: data[key] for key in ("duration_seconds", "cooldown_seconds", "performance") if key in data},
     }
 

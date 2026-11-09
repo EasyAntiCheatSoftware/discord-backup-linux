@@ -14,6 +14,7 @@ discord_backup/api.py
 discord_backup/backup.py
 discord_backup/cli.py
 discord_backup/encryption.py
+discord_backup/progress.py
 discord_backup/restore.py
 discord_backup/schedule.py
 discord_backup/storage.py
@@ -32,6 +33,7 @@ run.sh
 tests/test_backup.py
 tests/test_encryption_tokens.py
 tests/test_parallel_backup.py
+tests/test_progress_warnings.py
 tests/test_rate_limits_transport.py
 tests/test_release.py
 tests/test_review_regressions.py
@@ -40,3 +42,4 @@ tools/benchmark_network.py
 tools/install_desktop.py
 tools/package.py
 tools/release.py
+tools/screenshots.py

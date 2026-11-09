@@ -15,12 +15,12 @@ Before sharing a locally built package, normalize and verify it:
 
 ```sh
 mkdir -p dist/public
-cp dist/discord-backup-linux-1.4.0.tar.gz dist/public/
-python3 tools/package.py dist/arch/discord-backup-linux-1.4.0-1-any.pkg.tar.zst \
-  --output dist/public/discord-backup-linux-1.4.0-1-any.pkg.tar.zst
-(cd dist/public && sha256sum discord-backup-linux-1.4.0.tar.gz \
-  discord-backup-linux-1.4.0-1-any.pkg.tar.zst > SHA256SUMS)
-pacman -Qip dist/public/discord-backup-linux-1.4.0-1-any.pkg.tar.zst
+cp dist/discord-backup-linux-1.5.0.tar.gz dist/public/
+python3 tools/package.py dist/arch/discord-backup-linux-1.5.0-1-any.pkg.tar.zst \
+  --output dist/public/discord-backup-linux-1.5.0-1-any.pkg.tar.zst
+(cd dist/public && sha256sum discord-backup-linux-1.5.0.tar.gz \
+  discord-backup-linux-1.5.0-1-any.pkg.tar.zst > SHA256SUMS)
+pacman -Qip dist/public/discord-backup-linux-1.5.0-1-any.pkg.tar.zst
 ```
 
 The normalizer requires exactly the expected installed files and compares each with reviewed source. It removes the host package inventory and normalizes build identity/path fields, ownership, modes and timestamps. It regenerates `.MTREE`. This deliberately reduces `.BUILDINFO` and is not a full reproducible-build environment record. `makepkg`'s direct output remains available locally; use the normalized copy for publication. Binary package equality across different host toolchains is not promised.

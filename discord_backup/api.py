@@ -244,6 +244,15 @@ class RateLimiter:
         self.serial_templates = set()
         self.cooldown_seconds = 0
 
+    def invite_forecast(self):
+        """Read-only hints for the progress estimate; never reserve or send a request."""
+        key = ("POST", "/channels/{channel_id}/invites")
+        with self._condition:
+            return {
+                "wait_seconds": max(0, max(self.global_until, self.template_until.get(key, 0)) - self.clock()),
+                "serial": key in self.serial_templates,
+            }
+
     @staticmethod
     def key(method, route):
         path = urlsplit(route).path

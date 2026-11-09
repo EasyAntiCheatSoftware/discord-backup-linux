@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0 — 2026-11-09
+
+- Show an account-specific remaining/total time estimate after membership discovery. Update from this run's request timings, workload, encryption cost, worker count and known invite cooldowns; make no extra API calls and save no account-history cache.
+- Read relationships and memberships early enough to estimate before profile/settings and invite work. Keep membership checkpoints at the enclosing section boundary, removing duplicate encrypted saves.
+- Print every warning and affected/unattempted sections in the final summary, including interrupted backups. Explain missing invite access, preserved data and the need for a new backup to collect missing sections.
+- Add isolated synthetic terminal screenshots, a refreshed README and a same-machine/cross-machine unlock guide with GnuPG and app instructions.
+
 ## 1.4.0 — 2026-11-09
 
 First prepared public source/package release after the Linux implementation review.

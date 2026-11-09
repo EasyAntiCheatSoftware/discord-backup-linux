@@ -12,6 +12,7 @@ import time
 from . import __version__
 from .api import DiscordError
 from .encryption import require_gpg, validate_passphrase
+from .progress import duration, estimate_remaining
 from .storage import BackupWriteError, backup_directory, private_directory, snowflake, validate_folders, write_backup
 
 
@@ -55,6 +56,11 @@ class Collector:
         self._pool = None
         self.checkpoint_seconds = 0
         self.phase_seconds = {}
+        self._started = None
+        self._last_estimate = float("-inf")
+        self._invite_done = {"Servers": 0, "Groups": 0}
+        self._profile_requests = 0
+        self._estimate_unavailable = False
         require_gpg()
 
     def checkpoint(self, *, force=False):
@@ -79,13 +85,57 @@ class Collector:
         except DiscordError as error:
             if error.fatal:
                 raise
-            self.warning(f"{label}: {error}")
+            if error.status == 403:
+                detail = "Discord denied access (HTTP 403); this item was skipped"
+            elif error.status in (404, 405):
+                detail = f"Discord did not provide this data (HTTP {error.status}); it is missing from this backup"
+            elif error.status >= 500:
+                detail = f"Discord temporarily failed (HTTP {error.status}); try another backup later"
+            else:
+                detail = str(error)
+            if "invite" in label.lower():
+                detail += ". Membership/contact data already collected is kept; this invite may be unavailable"
+            self.warning(f"{label}: {detail}")
         except (ValueError, KeyError, TypeError, IndexError):
-            self.warning(f"{label}: unexpected response format")
+            self.warning(f"{label}: Discord returned an unsupported or incomplete format; some data in this section may be missing")
         return None
+
+    def server_jobs(self):
+        return [entry for entry in self.data["guilds"] if self.create_invites or
+                "VANITY_URL" in self._guild_lookup[entry["id"]].get("features", [])]
+
+    def estimate(self, *, force=False):
+        # A failed membership lookup cannot support a credible complete-account ETA.
+        sections = self.data["sections"]
+        if any(sections.get(key) != "saved" for key in ("guilds", "direct-messages")):
+            if all(key in self.phase_seconds for key in ("guilds", "direct-messages")) and not self._estimate_unavailable:
+                self.log(f"ETA for {self.data['name']}: unavailable because membership/group data is incomplete")
+                self._estimate_unavailable = True
+            return None
+        now = self.clock()
+        if not force and now - self._last_estimate < 5:
+            return None
+        stats = self.client.performance()
+        latency = stats["http_worker_seconds"] / stats["requests"] if stats["http_worker_seconds"] and stats["requests"] else 0.25
+        checkpoint = self.checkpoint_seconds / max(1, self.checkpoints_written)
+        metadata = {"profile": self._profile_requests, "relationships": 1, "folders": 1, "favourite-gifs": 1}
+        reads = sum(calls for key, calls in metadata.items() if key not in self.phase_seconds)
+        jobs = self.server_jobs()
+        servers = max(0, len(jobs) - self._invite_done["Servers"])
+        groups = max(0, len(self.data["group-chats"]) - self._invite_done["Groups"]) if self.create_invites else 0
+        hints = self.client.limiter.invite_forecast()
+        remaining = estimate_remaining(request_seconds=latency, checkpoint_seconds=checkpoint,
+            metadata_requests=reads, checkpoints=max(1, 9 - len(self.phase_seconds)),
+            server_jobs=servers, server_requests_per_job=2 if self.create_invites else 1,
+            group_jobs=groups, workers=self.workers, invite_wait=hints["wait_seconds"], serial_invites=hints["serial"])
+        elapsed = max(0, now - self._started)
+        self.log(f"ETA for {self.data['name']}: about {duration(remaining)} remaining / {duration(elapsed + remaining)} total")
+        self._last_estimate = now
+        return remaining
 
     def run(self):
         started = self.clock()
+        self._started = started
         me = self.client.request("GET", "/users/@me")
         if not isinstance(me, dict) or not snowflake(me.get("id")) or not isinstance(me.get("username"), str):
             raise DiscordError("Unexpected account profile response")
@@ -105,12 +155,16 @@ class Collector:
         self.path = private_directory(self.directory) / f"backup-{stamp}-{secrets.token_hex(6)}.bkup"
         self.checkpoint(force=True)
         self.log(f"Backing up {user_label(me)}")
+        self.log("Estimating this account's backup time; reading its memberships first…")
+        self._profile_requests = int("bio" not in me or "banner" not in me) + sum(bool(me.get(key)) for key in ("avatar", "banner"))
         self._pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="discord-backup")
+        label = "preparation"
         try:
-            tasks = [("profile", lambda: self.profile(me)), ("relationships", self.relationships),
+            tasks = [("relationships", self.relationships), ("guilds", self.guilds),
+                     ("direct-messages", self.channels), ("profile", lambda: self.profile(me)),
                      ("folders", self.folders), ("favourite-gifs", self.gifs),
-                     ("guilds", self.guilds), ("direct-messages", self.channels),
                      ("server-invites", self.server_invites), ("group-invites", self.group_invites)]
+            self.data["sections"] = {label: "pending" for label, _ in tasks}
             for label, action in tasks:
                 self.log(f"Saving {label}…")
                 before = len(self.data["warnings"])
@@ -119,12 +173,14 @@ class Collector:
                 self.phase_seconds[label] = round(self.clock() - phase_started, 3)
                 self.data["sections"][label] = "saved" if len(self.data["warnings"]) == before else "partial"
                 self.checkpoint(force=True)
+                self.estimate(force=True)
             self.data["status"] = "partial" if self.data["warnings"] else "complete"
         except (DiscordError, KeyboardInterrupt) as error:
             self.client.cancel(error if isinstance(error, DiscordError) else None)
             self.data["interrupted"] = True
-            self.warning("Backup interrupted; completed sections were preserved")
+            self.data["sections"][label] = "interrupted"
             reason = str(error) if isinstance(error, DiscordError) else "Cancelled"
+            self.warning(f"Backup interrupted: {reason}. Completed sections were preserved; later sections may not have been attempted")
             raise BackupInterrupted(f"{reason}. Saved partial backup: {self.path}") from error
         finally:
             self._pool.shutdown(wait=True, cancel_futures=True)
@@ -145,15 +201,19 @@ class Collector:
         if self._pool is None or self.workers == 1:
             for index, entry in enumerate(entries, 1):
                 self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')}")
-                entry["invite-code"] = self.optional(f"Invite for {label.lower()}", lambda entry=entry: action(entry))
+                entry["invite-code"] = self.optional(f"{label[:-1]} invite ({entry.get('name', 'Unknown')})", lambda entry=entry: action(entry))
+                self._invite_done[label] += 1
                 self.checkpoint()
+                self.estimate()
             return
         futures = {self._pool.submit(action, entry): entry for entry in entries}
         for index, future in enumerate(as_completed(futures), 1):
             entry = futures[future]
-            entry["invite-code"] = self.optional(f"Invite for {label.lower()}", future.result)
+            entry["invite-code"] = self.optional(f"{label[:-1]} invite ({entry.get('name', 'Unknown')})", future.result)
+            self._invite_done[label] += 1
             self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')}")
             self.checkpoint()
+            self.estimate()
 
     def remember_user(self, user):
         if not isinstance(user, dict) or not snowflake(user.get("id")):
@@ -238,9 +298,8 @@ class Collector:
         self._guild_lookup = {str(guild["id"]): guild for guild in guilds}
         # Save server membership before making requests that could be interrupted.
         self.data["guilds"] = [{"id": str(guild["id"]), "name": guild.get("name", "Unknown"), "invite-code": None} for guild in guilds]
-        self.checkpoint(force=True)
     def server_invites(self):
-        self.invite_results(self.data["guilds"], lambda entry: self.guild_invite(self._guild_lookup[entry["id"]]), "Servers")
+        self.invite_results(self.server_jobs(), lambda entry: self.guild_invite(self._guild_lookup[entry["id"]]), "Servers")
 
     def channels(self):
         channels = object_list(self.client.request("GET", "/users/@me/channels"))
@@ -260,7 +319,6 @@ class Collector:
                     "recipients": [str(user["id"]) for user in recipients], "invite-code": None,
                 })
         self.data["dm-history"].sort(key=lambda entry: int(entry.get("last_message_id") or 0), reverse=True)
-        self.checkpoint(force=True)
 
     def group_invites(self):
         if self.create_invites:
