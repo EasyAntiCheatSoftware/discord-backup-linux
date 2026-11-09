@@ -2,13 +2,14 @@
 
 from contextlib import redirect_stdout, redirect_stderr
 import io
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
 from discord_backup.api import DiscordClient, DiscordError, RateLimiter
 from discord_backup.backup import BackupInterrupted, Collector
 from discord_backup.cli import execute, parser
-from discord_backup.progress import duration, estimate_remaining
+from discord_backup.progress import EstimateReporter, duration, estimate_remaining
 from discord_backup.restore import summary
 from discord_backup.terminal import Console
 from test_backup import FakeClock, FakeHTTP, PASSWORD, TOKEN, TemporaryTest
@@ -63,11 +64,86 @@ class EstimateTests(TemporaryTest):
         # The estimator adds no calls to the nine-request fixture workload.
         self.assertEqual(len(http.calls), 9)
 
-    def test_incomplete_memberships_do_not_get_a_misleading_numeric_estimate(self):
+    def test_incomplete_memberships_get_a_labeled_available_data_estimate(self):
         http, logs = FakeHTTP({('GET', '/users/@me/channels'): (404, {}, {})}), []
         Collector(http.client(), self.directory, passphrase=PASSWORD, log=logs.append).run()
-        self.assertTrue(any('ETA for example: unavailable' in line for line in logs))
-        self.assertFalse(any('ETA for example: about' in line for line in logs))
+        estimates = [line for line in logs if 'ETA for example: about' in line and 'available data only' in line]
+        self.assertTrue(estimates)
+        self.assertTrue(all('group list unavailable' in line for line in estimates))
+
+    def test_initial_eta_precedes_first_request_and_numeric_eta_precedes_groups(self):
+        http, logs = FakeHTTP(), []
+        initial_channels = http.routes[('GET', '/users/@me/channels')]
+
+        def channels(request):
+            self.assertTrue(any('ETA for example: about' in line and 'group count pending' in line for line in logs))
+            return initial_channels
+
+        http.routes[('GET', '/users/@me/channels')] = channels
+        calls_at_eta = []
+
+        def log(message):
+            logs.append(message)
+            if message.startswith('ETA for'):
+                calls_at_eta.append(len(http.calls))
+
+        Collector(http.client(), self.directory, passphrase=PASSWORD, log=log).run()
+        self.assertEqual(calls_at_eta[0], 0)
+        progress = [line for line in logs if line.startswith(('Servers [', 'Groups ['))]
+        self.assertTrue(progress)
+        self.assertTrue(all(' | ETA ' in line for line in progress))
+
+    def test_eta_keeps_printing_while_membership_request_is_blocked(self):
+        blocked, heartbeat = threading.Event(), threading.Event()
+        http, logs = FakeHTTP(), []
+        initial_guilds = http.routes[('GET', '/users/@me/guilds?limit=200&after=0')]
+
+        def guilds(request):
+            blocked.set()
+            self.assertTrue(heartbeat.wait(2), 'No ETA appeared during a blocked request')
+            blocked.clear()
+            return initial_guilds
+
+        def log(message):
+            logs.append(message)
+            if blocked.is_set() and threading.current_thread().name == 'discord-backup-eta':
+                heartbeat.set()
+
+        http.routes[('GET', '/users/@me/guilds?limit=200&after=0')] = guilds
+        Collector(http.client(), self.directory, passphrase=PASSWORD, log=log, progress_interval=0.02).run()
+        self.assertTrue(heartbeat.is_set())
+        self.assertFalse(any(thread.name == 'discord-backup-eta' for thread in threading.enumerate()))
+
+    def test_reporter_shows_new_discord_wait_and_stops_after_error(self):
+        clock, output, tick = FakeClock(), [], threading.Event()
+        hints = {'wait_seconds': 0}
+
+        def log(message):
+            output.append(message)
+            if 'Discord wait 20s' in message:
+                tick.set()
+
+        reporter = EstimateReporter(log, clock=clock, interval=0.02, hints=lambda: dict(hints))
+        with self.assertRaisesRegex(ValueError, 'synthetic stop'):
+            with reporter:
+                reporter.publish('example', remaining=3)
+                hints['wait_seconds'] = 20
+                self.assertTrue(tick.wait(2))
+                self.assertEqual(reporter.short(), 'ETA ~20s left')
+                raise ValueError('synthetic stop')
+        self.assertFalse(reporter._thread.is_alive())
+
+    def test_overrun_recalculates_instead_of_promising_zero_seconds(self):
+        clock, output = FakeClock(), []
+        reporter = EstimateReporter(output.append, clock=clock)
+        with reporter:
+            reporter.publish('example', remaining=1)
+            clock.now += 10
+            self.assertEqual(reporter.short(), 'ETA recalculating')
+            with reporter._lock:
+                reporter._emit()
+        self.assertIn('taking longer than estimated', output[-1])
+        self.assertNotIn('0s remaining', output[-1])
 
 
 class WarningTests(TemporaryTest):

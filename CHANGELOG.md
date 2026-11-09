@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.1 — 2026-11-09
+
+- Replace the README lead screenshot with an animated synthetic backup demo and retain a static preview.
+
+- Show ETA status before the first backup request and keep a five-second heartbeat active during blocked HTTP requests, encryption and rate-limit waits. Stop/join the reporter before returning to the menu or a secret prompt.
+- Discover servers first and show a preliminary numeric estimate before the group lookup completes. Failed discovery no longer suppresses all timing output; any numeric estimate for an incomplete workload is labeled available data only.
+- Append a short ETA to each server/group invitation progress line. An overrun reports recalculating instead of zero seconds.
+- Add regressions for output before the first request, numeric output before group discovery, heartbeats during blocked requests, wait updates, reporter shutdown and forecast overruns.
+
 ## 1.5.0 — 2026-11-09
 
 - Show an account-specific remaining/total time estimate after membership discovery. Update from this run's request timings, workload, encryption cost, worker count and known invite cooldowns; make no extra API calls and save no account-history cache.

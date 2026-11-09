@@ -67,7 +67,7 @@ def demo(mode):
             return main(['--color', 'always', 'backup', '--output', 'backups'])
 
 
-def capture(mode):
+def capture(mode, *, record=False):
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 100, 0, 0))
     with tempfile.TemporaryDirectory(prefix='discord-screenshot-env-') as directory:
@@ -77,7 +77,8 @@ def capture(mode):
         process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--capture', mode],
                                    stdin=slave, stdout=slave, stderr=slave, env=env, cwd=ROOT, close_fds=True)
         os.close(slave)
-        output, answered = bytearray(), False
+        output, answered, events = bytearray(), False, []
+        started = time.monotonic()
         selector = selectors.DefaultSelector()
         selector.register(master, selectors.EVENT_READ)
         deadline = time.monotonic() + 45
@@ -98,6 +99,12 @@ def capture(mode):
                 if not chunk:
                     break
                 output.extend(chunk)
+                if record:
+                    end = output.rfind(b'\n') + 1
+                    if end:
+                        snapshot = output[:end].decode('utf-8')
+                        if not events or events[-1][1] != snapshot:
+                            events.append((time.monotonic() - started, snapshot))
                 if mode == 'menu' and b'Choice:' in output and not answered:
                     os.write(master, b'0\n')
                     answered = True
@@ -113,10 +120,12 @@ def capture(mode):
     text = output.decode('utf-8')
     if str(Path.home()) in text or 'synthetic.test.token' in text or 'Traceback' in text:
         raise ValueError('Private/debug text in screenshot capture')
-    return text
+    if record and (not events or events[-1][1] != text):
+        events.append((time.monotonic() - started, text))
+    return (text, events) if record else text
 
 
-def render(text, path, *, rows):
+def render(text, path=None, *, rows):
     from PIL import Image, ImageDraw, ImageFont
     font_dir = Path('/usr/share/fonts/noto')
     regular = ImageFont.truetype(str(font_dir / 'NotoSansMono-Regular.ttf'), 20)
@@ -177,19 +186,47 @@ def render(text, path, *, rows):
                 ink = tuple(round(int(ink[i:i+2], 16) * 0.7 + 30 * 0.3) for i in (1, 3, 5))
             draw.text((padding + x * cell, titlebar + padding + y * leading), character,
                       font=bold_font if is_bold else regular, fill=ink)
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(path, optimize=True)  # No desktop, EXIF, hostname or user metadata.
+    return image
+
+
+def animate(events, path):
+    """Replay captured backup output, slowed for readability and held at completion."""
+    from PIL import Image
+    if not events or 'COMPLETE' not in events[-1][1]:
+        raise ValueError('Demo backup did not complete')
+    first_estimate = next((i for i, (_, text) in enumerate(events) if 'preliminary;' in text), 0)
+    events = events[first_estimate:]
+    if len(events) > 28:
+        indices = sorted({round(i * (len(events) - 1) / 27) for i in range(28)})
+        events = [events[i] for i in indices]
+    frames, durations = [], []
+    for index, (stamp, text) in enumerate(events):
+        frame = render(text, rows=28)
+        size = (1100, round(frame.height * 1100 / frame.width))
+        frame = frame.resize(size, Image.Resampling.LANCZOS)
+        frames.append(frame.quantize(colors=128))
+        gap = events[index + 1][0] - stamp if index + 1 < len(events) else 0
+        durations.append(max(220, min(900, round(gap * 4500))))
+    durations[0], durations[-1] = 900, 2800
     path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(path, optimize=True)  # No desktop, EXIF, hostname or user metadata.
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=durations,
+                   loop=0, disposal=1, optimize=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--capture', choices=('menu', 'backup', 'warnings'), help=argparse.SUPPRESS)
-    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.5.0/screenshots')
+    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.5.1/screenshots')
     args = parser.parse_args()
     if args.capture:
         return demo(args.capture)
     for mode, rows in (('menu', 24), ('backup', 28), ('warnings', 30)):
         render(capture(mode), args.output / f'{mode}.png', rows=rows)
+    _, events = capture('backup', record=True)
+    animate(events, args.output / 'demo.gif')
     return 0
 
 

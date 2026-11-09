@@ -12,7 +12,7 @@ import time
 from . import __version__
 from .api import DiscordError
 from .encryption import require_gpg, validate_passphrase
-from .progress import duration, estimate_remaining
+from .progress import EstimateReporter, estimate_remaining
 from .storage import BackupWriteError, backup_directory, private_directory, snowflake, validate_folders, write_backup
 
 
@@ -38,7 +38,7 @@ class BackupInterrupted(DiscordError):
 
 class Collector:
     def __init__(self, client, directory=None, *, passphrase, create_invites=True, log=print,
-                 clock=time.monotonic, checkpoint_interval=5, workers=3):
+                 clock=time.monotonic, checkpoint_interval=5, workers=3, progress_interval=5):
         self.client = client
         self.directory = Path(directory) if directory else backup_directory()
         self.create_invites = create_invites
@@ -60,7 +60,8 @@ class Collector:
         self._last_estimate = float("-inf")
         self._invite_done = {"Servers": 0, "Groups": 0}
         self._profile_requests = 0
-        self._estimate_unavailable = False
+        self.progress_interval = progress_interval
+        self._reporter = None
         require_gpg()
 
     def checkpoint(self, *, force=False):
@@ -105,20 +106,20 @@ class Collector:
                 "VANITY_URL" in self._guild_lookup[entry["id"]].get("features", [])]
 
     def estimate(self, *, force=False):
-        # A failed membership lookup cannot support a credible complete-account ETA.
         sections = self.data["sections"]
-        if any(sections.get(key) != "saved" for key in ("guilds", "direct-messages")):
-            if all(key in self.phase_seconds for key in ("guilds", "direct-messages")) and not self._estimate_unavailable:
-                self.log(f"ETA for {self.data['name']}: unavailable because membership/group data is incomplete")
-                self._estimate_unavailable = True
-            return None
         now = self.clock()
         if not force and now - self._last_estimate < 5:
+            return None
+        if not any(sections.get(key) == "saved" for key in ("guilds", "direct-messages")) and not all(
+                key in self.phase_seconds for key in ("guilds", "direct-messages")):
+            self._reporter.publish(self.data["name"], note="loading server/group counts")
+            self._last_estimate = now
             return None
         stats = self.client.performance()
         latency = stats["http_worker_seconds"] / stats["requests"] if stats["http_worker_seconds"] and stats["requests"] else 0.25
         checkpoint = self.checkpoint_seconds / max(1, self.checkpoints_written)
-        metadata = {"profile": self._profile_requests, "relationships": 1, "folders": 1, "favourite-gifs": 1}
+        metadata = {"guilds": 1, "direct-messages": 1, "profile": self._profile_requests,
+                    "relationships": 1, "folders": 1, "favourite-gifs": 1}
         reads = sum(calls for key, calls in metadata.items() if key not in self.phase_seconds)
         jobs = self.server_jobs()
         servers = max(0, len(jobs) - self._invite_done["Servers"])
@@ -128,14 +129,29 @@ class Collector:
             metadata_requests=reads, checkpoints=max(1, 9 - len(self.phase_seconds)),
             server_jobs=servers, server_requests_per_job=2 if self.create_invites else 1,
             group_jobs=groups, workers=self.workers, invite_wait=hints["wait_seconds"], serial_invites=hints["serial"])
-        elapsed = max(0, now - self._started)
-        self.log(f"ETA for {self.data['name']}: about {duration(remaining)} remaining / {duration(elapsed + remaining)} total")
+        pending = [label for key, label in (("guilds", "server count pending"), ("direct-messages", "group count pending"))
+                   if key not in self.phase_seconds]
+        missing = [label for key, label in (("guilds", "server list unavailable"), ("direct-messages", "group list unavailable"))
+                   if key in self.phase_seconds and sections.get(key) != "saved"]
+        notes = (["preliminary; " + ", ".join(pending)] if pending else []) + (
+                 ["available data only; " + ", ".join(missing)] if missing else [])
+        self._reporter.publish(self.data["name"], remaining=remaining, note="; ".join(notes))
         self._last_estimate = now
         return remaining
 
     def run(self):
-        started = self.clock()
-        self._started = started
+        self._started = self.clock()
+        with EstimateReporter(self.log, clock=self.clock, interval=self.progress_interval,
+                              hints=self.client.limiter.invite_forecast) as reporter:
+            self._reporter = reporter
+            reporter.publish("selected account", note="checking account and loading its workload")
+            try:
+                return self._run()
+            finally:
+                self._reporter = None
+
+    def _run(self):
+        started = self._started
         me = self.client.request("GET", "/users/@me")
         if not isinstance(me, dict) or not snowflake(me.get("id")) or not isinstance(me.get("username"), str):
             raise DiscordError("Unexpected account profile response")
@@ -153,6 +169,7 @@ class Collector:
         }
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         self.path = private_directory(self.directory) / f"backup-{stamp}-{secrets.token_hex(6)}.bkup"
+        self._reporter.publish(me["username"], note="loading server/group counts")
         self.checkpoint(force=True)
         self.log(f"Backing up {user_label(me)}")
         self.log("Estimating this account's backup time; reading its memberships first…")
@@ -160,7 +177,7 @@ class Collector:
         self._pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="discord-backup")
         label = "preparation"
         try:
-            tasks = [("relationships", self.relationships), ("guilds", self.guilds),
+            tasks = [("guilds", self.guilds), ("relationships", self.relationships),
                      ("direct-messages", self.channels), ("profile", lambda: self.profile(me)),
                      ("folders", self.folders), ("favourite-gifs", self.gifs),
                      ("server-invites", self.server_invites), ("group-invites", self.group_invites)]
@@ -200,7 +217,7 @@ class Collector:
             return
         if self._pool is None or self.workers == 1:
             for index, entry in enumerate(entries, 1):
-                self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')}")
+                self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')} | {self._reporter.short()}")
                 entry["invite-code"] = self.optional(f"{label[:-1]} invite ({entry.get('name', 'Unknown')})", lambda entry=entry: action(entry))
                 self._invite_done[label] += 1
                 self.checkpoint()
@@ -211,7 +228,7 @@ class Collector:
             entry = futures[future]
             entry["invite-code"] = self.optional(f"{label[:-1]} invite ({entry.get('name', 'Unknown')})", future.result)
             self._invite_done[label] += 1
-            self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')}")
+            self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')} | {self._reporter.short()}")
             self.checkpoint()
             self.estimate()
 
