@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1 — 2026-11-10
+
+- Retry invalid yes/no answers at the same prompt instead of silently choosing a default. Accept y/yes and n/no without case sensitivity; only an empty answer selects the displayed default.
+- Retry invalid menu choices, account/server selections and exact-word restore confirmations. Invalid input cannot start a backup, upload contacts, open a browser or apply a restore. Keep Enter-to-cancel behavior for restore confirmations and normal EOF/Ctrl+C cancellation.
+- Add nine offline regression tests covering prompt validation and action gating.
+
 ## 1.6.0 — 2026-11-09
 
 - Analyze and reuse the account workload before the main backup, then display one whole-account time estimate before the first normal checkpoint or invitation. Calibrate encryption in memory, retain an overall heartbeat, and show the initial estimate with actual elapsed time. Resource rows have counters only. Preparation errors preserve collected data in an encrypted partial file.

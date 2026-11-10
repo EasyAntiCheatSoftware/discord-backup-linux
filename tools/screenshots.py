@@ -219,7 +219,7 @@ def animate(events, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--capture', choices=('menu', 'backup', 'warnings'), help=argparse.SUPPRESS)
-    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.6.0/screenshots')
+    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.6.1/screenshots')
     args = parser.parse_args()
     if args.capture:
         return demo(args.capture)

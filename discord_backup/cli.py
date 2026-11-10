@@ -28,6 +28,31 @@ print = console.print
 input = console.input
 
 
+def choose(prompt, choices, *, default=None, case_sensitive=False, error=None):
+    while True:
+        answer = input(prompt).strip()
+        if not case_sensitive:
+            answer = answer.lower()
+        if not answer and default is not None:
+            return default
+        if answer in choices:
+            return answer
+        print(error or ("Invalid option. Choose " + ", ".join(choices) + "."))
+
+
+def yes_no(question, *, default):
+    suffix = "[Y/n]" if default else "[y/N]"
+    answer = choose(f"{question} {suffix}: ", ("y", "yes", "n", "no"),
+                    default="y" if default else "n",
+                    error="Invalid answer. Enter y/yes or n/no, or press Enter for the shown default.")
+    return answer in ("y", "yes")
+
+
+def confirm_action(word, prompt):
+    return choose(prompt, (word, ""), case_sensitive=True,
+                  error=f"Invalid confirmation. Type {word}, or press Enter to cancel.") == word
+
+
 def hidden_input(prompt):
     if not sys.stdin.isatty():
         raise ValueError("A terminal is required for hidden input; use private --token-file/--passphrase-file options for unattended runs")
@@ -83,13 +108,11 @@ def select_token(args):
     if not sys.stdin.isatty():
         raise ValueError("Account selection needs a terminal; use --token-file for unattended runs")
     if not getattr(args, "scan", False):
-        choice = input("1  Scan stored Discord accounts\n2  Enter a token manually\nChoice [1]: ").strip()
+        choice = choose("1  Scan stored Discord accounts\n2  Enter a token manually\nChoice [1]: ", ("1", "2"), default="1")
         if choice == "2":
             return hidden_token()
-        if choice not in ("", "1"):
-            raise ValueError("Choose 1 to scan or 2 for manual entry")
         if not getattr(args, "scan_browsers", False):
-            args.scan_browsers = input("Also scan Chrome/Chromium/Brave/Edge browser profiles? [y/N]: ").strip().lower() == "y"
+            args.scan_browsers = yes_no("Also scan Chrome/Chromium/Brave/Edge browser profiles?", default=False)
     try:
         accounts = scan_accounts(args)
     except DiscordError as error:
@@ -106,7 +129,7 @@ def select_token(args):
             return hidden_token()
         if selection == "0":
             raise ValueError("Account selection cancelled")
-        if selection.isdigit() and 1 <= int(selection) <= len(accounts):
+        if selection.isascii() and selection.isdigit() and len(selection) <= len(str(len(accounts))) and 1 <= int(selection) <= len(accounts):
             return accounts[int(selection) - 1].token
         print("Choose one of the listed accounts or M for manual entry")
 
@@ -307,14 +330,14 @@ def settings_flow(args, data, password):
         except AccountMismatch as error:
             print(f"Backup account: {data['name']} ({data['id']})")
             print(f"Selected target: {user_label(error.target)} ({error.target['id']})")
-            if input("Type DIFFERENT to preview a restore on this other account, or press Enter to cancel: ").strip() != "DIFFERENT":
+            if not confirm_action("DIFFERENT", "Type DIFFERENT to preview a restore on this other account, or press Enter to cancel: "):
                 print("Different-account restore cancelled; nothing changed")
                 return
             allow_different = True
             plan = action(client, data, allow_different=True, log=console.log)
         if plan is not None:
             print(json.dumps(plan, ensure_ascii=False, indent=2))
-        if input("Type APPLY to save an encrypted rollback and apply this restore: ").strip() != "APPLY":
+        if not confirm_action("APPLY", "Type APPLY to save an encrypted rollback and apply this restore, or press Enter to cancel: "):
             print("Preview finished; nothing changed")
             return
         password = password if password is not None else hidden_passphrase(creating=True)
@@ -335,12 +358,16 @@ def choose_hub_server(bot):
             print("Add this bot to a private server using:")
             print(f"https://discord.com/oauth2/authorize?client_id={application['id']}&scope=bot&permissions={BOT_PERMISSIONS}")
         print("Create a private server in Discord if needed, then add the bot. No user account token is needed for this method.")
-    answer = input("Server number, a server ID, or 0 to cancel: ").strip()
-    if answer == "0":
-        raise ValueError("Recovery cancelled")
-    if answer.isascii() and answer.isdigit() and len(answer) <= 3 and 1 <= int(answer) <= len(guilds):
-        return str(guilds[int(answer) - 1]["id"])
-    return answer
+    while True:
+        answer = input("Server number, a server ID, or 0 to cancel: ").strip()
+        if answer == "0":
+            raise ValueError("Recovery cancelled")
+        if answer.isascii() and answer.isdigit() and len(answer) <= 3:
+            if 1 <= int(answer) <= len(guilds):
+                return str(guilds[int(answer) - 1]["id"])
+        elif len(answer) > 3 and snowflake(answer):
+            return answer
+        print("Invalid option. Enter a listed server number, a server ID, or 0 to cancel.")
 
 
 def hub_flow(args, data, *, confirm=False):
@@ -370,7 +397,7 @@ def hub_flow(args, data, *, confirm=False):
         print("This uploads decrypted backup data to Discord. The server owner, administrators and bot can access it.")
         apply = getattr(args, "apply", False)
         if confirm:
-            apply = input("Type PUBLISH to create this recovery hub, or press Enter to cancel: ").strip() == "PUBLISH"
+            apply = confirm_action("PUBLISH", "Type PUBLISH to create this recovery hub, or press Enter to cancel: ")
         if not apply:
             print("Preview only; no channels or messages were created. Use --apply to publish from the command line.")
             return 0
@@ -390,7 +417,7 @@ def recovery_menu(args):
         print("  3  Restore server folders (preview first)")
         print("  4  Restore favourite GIF settings (preview first)")
         print("  B  Choose another backup\n  0  Back")
-        choice = input("Recovery method [1]: ").strip().lower() or "1"
+        choice = choose("Recovery method [1]: ", ("1", "2", "3", "4", "b", "0"), default="1")
         try:
             if choice == "0":
                 return 0
@@ -407,12 +434,12 @@ def recovery_menu(args):
                 print("These files contain decrypted personal data. Keep the recovery folder private.")
                 for notice in notices:
                     print(f"Warning: {notice}")
-                if input("Open the local recovery page in your browser? [y/N]: ").strip().lower() == "y":
+                if yes_no("Open the local recovery page in your browser?", default=False):
                     if not webbrowser.open(page.resolve().as_uri()):
                         print("Open index.html from the recovery folder manually.")
             elif choice == "2":
                 hub_args = parser().parse_args(["restore-hub", str(source)])
-                if input("Include friends, relationships and DM contact links in the hub? [Y/n]: ").strip().lower() == "n":
+                if not yes_no("Include friends, relationships and DM contact links in the hub?", default=True):
                     hub_args.include = ["servers", "groups", "warnings"]
                 hub_flow(hub_args, data, confirm=True)
             elif choice in ("3", "4"):
@@ -428,13 +455,13 @@ def menu():
     console.banner(__version__, backup_directory())
     while True:
         console.menu()
-        choice = input("Choice: ").strip()
+        choice = choose("Choice: ", tuple(str(number) for number in range(10)))
         if choice == "0":
             return 0
         command = []
         if choice == "1":
             command = ["backup"]
-            if input("Create server/group invites where permitted? [Y/n]: ").strip().lower() == "n":
+            if not yes_no("Create server/group invites where permitted?", default=True):
                 command.append("--no-invites")
         elif choice in ("2", "3", "4"):
             command = [{"2": "recover", "3": "restore-folders", "4": "restore-gifs"}[choice]]

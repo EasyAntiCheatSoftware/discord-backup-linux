@@ -1,6 +1,6 @@
 # Template: tools/release.py replaces the source checksum before makepkg.
 pkgname=discord-backup-linux
-pkgver=1.6.0
+pkgver=1.6.1
 pkgrel=1
 pkgdesc='Discord account backups and local recovery tools for Linux'
 arch=('any')

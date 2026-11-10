@@ -11,7 +11,7 @@ A terminal app for encrypted Discord account backups and offline recovery.
 ![Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-8b5cf6)](LICENSE)
 
-**[Quick start](#start-on-arch-linux) · [Download](builds/v1.6.0) · [Unlock a backup](UNLOCK_BACKUP.md) · [Commands](#commands)**
+**[Quick start](#start-on-arch-linux) · [Download](builds/v1.6.1) · [Unlock a backup](UNLOCK_BACKUP.md) · [Commands](#commands)**
 
 </div>
 
@@ -37,6 +37,8 @@ cd discord-backup-linux
 ```
 
 The menu offers cache scanning or hidden manual token entry. A backup then asks for a passphrase of at least 12 characters and confirmation. Keep that passphrase: there is no reset or recovery key.
+
+Invalid menu choices and confirmations show an error and ask again at the same prompt. Yes/no questions accept `y`/`yes` or `n`/`no`, ignoring case; Enter uses the displayed default. Restore confirmations require the exact uppercase word, or Enter to cancel.
 
 For a first read-only backup:
 
@@ -65,14 +67,14 @@ This creates **Discord Backup** in the desktop directory reported by `xdg-user-d
 
 ### Arch package
 
-A complete package and matching source archive are kept under [builds/v1.6.0](builds/v1.6.0). Check `SHA256SUMS` in that directory before installing. Packages are unsigned; checksums detect a damaged or mismatched download, not the identity of its publisher.
+A complete package and matching source archive are kept under [builds/v1.6.1](builds/v1.6.1). Check `SHA256SUMS` in that directory before installing. Packages are unsigned; checksums detect a damaged or mismatched download, not the identity of its publisher.
 
 To build locally instead:
 
 ```sh
 sudo pacman -S --needed base-devel python gnupg python-requests
 ./build-arch.sh
-sudo pacman -U dist/arch/discord-backup-linux-1.6.0-1-any.pkg.tar.zst
+sudo pacman -U dist/arch/discord-backup-linux-1.6.1-1-any.pkg.tar.zst
 discord-backup
 ```
 
