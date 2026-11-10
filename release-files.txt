@@ -14,13 +14,16 @@ discord_backup/api.py
 discord_backup/backup.py
 discord_backup/cli.py
 discord_backup/encryption.py
+discord_backup/hub.py
 discord_backup/progress.py
 discord_backup/restore.py
 discord_backup/schedule.py
+discord_backup/selection.py
 discord_backup/storage.py
 discord_backup/terminal.py
 discord_backup/tokens.py
 docs/ARCHITECTURE.md
+docs/RECOVERY_HUB.md
 docs/RELEASING.md
 docs/REVIEW.md
 main.py
@@ -37,6 +40,7 @@ tests/test_progress_warnings.py
 tests/test_rate_limits_transport.py
 tests/test_release.py
 tests/test_review_regressions.py
+tests/test_selection_hub.py
 tools/benchmark.py
 tools/benchmark_network.py
 tools/install_desktop.py

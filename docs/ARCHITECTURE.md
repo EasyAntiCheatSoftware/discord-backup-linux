@@ -11,6 +11,8 @@ All launchers converge on `discord_backup.cli.main`: `run.sh`, `main.py`, `pytho
 | `encryption.py` | Isolated GnuPG invocation, passphrase pipe and authenticated decrypt checks |
 | `storage.py` | XDG paths, private atomic writes, file/schema validation and private credential reads |
 | `restore.py` | Escaped local recovery page, folder planning, account checks, encrypted rollback and verified writes |
+| `selection.py` | Current/default/session backup discovery and custom file/folder picking |
+| `hub.py` | Official bot client, bounded recovery plans, private-channel verification and preview/apply publishing |
 | `schedule.py` | Quoted systemd user service/timer generation |
 | `progress.py` | Current-account workload and latency estimates without extra requests or saved history |
 | `terminal.py` | Colors, terminal control filtering and summaries |
@@ -19,7 +21,7 @@ All launchers converge on `discord_backup.cli.main`: `run.sh`, `main.py`, `pytho
 
 ## Collection flow
 
-Authentication precedes the first checkpoint. The collector initializes a partial record, saves profile/relationships/folders/frecency data, captures all server and DM/group memberships, then performs invitation work. Optional endpoint failures become warnings; credential rejection, CAPTCHA, persistent throttling and cancellation stop queued work. The main thread owns backup state and persistence. Workers return invite results through futures; they do not write backup files.
+Authentication precedes the first checkpoint. The collector analyzes servers, relationships and DM/group contacts in memory, shows a whole-account estimate, then checkpoints the prepared data, collects profile/settings and performs invitation work. Optional endpoint failures become warnings; credential rejection, CAPTCHA, persistent throttling and cancellation stop queued work. The main thread owns backup state and persistence. Workers return invite results through futures; they do not write backup files.
 
 The shared limiter uses normalized route templates plus major resource IDs. Unknown buckets serialize requests for the same major resource until a response establishes a budget. Known budget is reserved before network work begins. Global and route deadlines use a monotonic clock. All invitation channels share a temporary pause and switch to serial requests after invite throttling. Coordination does not extend to another process or the official Discord client.
 
@@ -39,8 +41,15 @@ Runtime data belongs in XDG storage, outside source. Source archives use only `r
 
 ## Time estimates and documentation images
 
-The collector discovers servers, relationships and DM/group contacts before profile/settings and invitation work. ETA status starts before the first request, then becomes a preliminary numeric estimate after the server list loads. Its scope is labeled when group discovery is pending or membership data is incomplete. Forecasts use this run's measured HTTP/encryption timings and a read-only limiter snapshot; they do not reserve budgets, send requests, change pacing or persist account history. An independent reporter thread reads only locked immutable display snapshots and limiter hints, so it can print a heartbeat while collection is blocked. It is stopped and joined on every exit before another menu/secret prompt. Invite progress lines carry a short ETA; stale forecasts become recalculating rather than zero. New limits and variable response costs can still make a guess inaccurate.
+The collector reads servers, relationships and DM/group contacts in a read-only preparation stage and reuses those results. It calibrates encryption with a tiny in-memory message, then prints one whole-account duration before a normal checkpoint/invitation is written. The initial prediction includes preparation time; completed preparation data is saved in an encrypted partial file if preparation is interrupted. Forecast snapshots are updated without printing resource-specific estimates. A five-second reporter heartbeat shows overall remaining time while work is blocked and is stopped/joined before returning to the menu or a secret prompt. No duplicate discovery request, account-history file or credential cache is added.
 
-`tools/screenshots.py` runs the real CLI in private pseudo-terminals with fake transports and a blocked network connection path. A fixed neutral palette and Noto Sans Mono render that output to PNG through Pillow. No desktop or user terminal configuration is captured. Demonstration backups and credentials are temporary; only the synthetic screenshots are publication assets under `builds/v1.5.1/screenshots`. Install Pillow and Noto Sans Mono only if regenerating these developer assets.
+
+`tools/screenshots.py` runs the real CLI in private pseudo-terminals with fake transports and a blocked network connection path. A fixed neutral palette and Noto Sans Mono render that output to PNG through Pillow. No desktop or user terminal configuration is captured. Demonstration backups and credentials are temporary; only the synthetic screenshots are publication assets under `builds/v1.6.0/screenshots`. Install Pillow and Noto Sans Mono only if regenerating these developer assets.
 
 The screenshot tool also records timestamped PTY output and renders a looping GIF. The README demo uses those real output snapshots with synthetic data, slowed for readability and held on the completion summary.
+
+## Official bot recovery
+
+The recovery hub uses a separate client fixed to Discord API v10 with Bot authorization and a documented bot user agent. The existing personal-account backup/settings client remains on its original endpoint/auth path. Tokens are explicit per-request headers, never session defaults or message content. The hub is an organizer, not an account rejoin/friend/profile mutation service.
+
+Plans contain fixed channel names and bounded, escaped Discord links/text. Preview reads the bot/server identities and shows the target/data scope. Apply rechecks the destination owner/name, creates a private category and children with explicit overwrites, validates channel identity/privacy before posting, disables mentions/embeds and confirms message IDs. The server owner/admins remain trusted and can change permissions between calls. Partial created resources are retained; ambiguous writes are not retried automatically. No encrypted backup, token, passphrase or raw settings block is uploaded.

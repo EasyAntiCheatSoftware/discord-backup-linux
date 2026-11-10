@@ -13,6 +13,12 @@ from .backup import user_label
 from .storage import atomic_write, backup_directory, snowflake, validate_folders, write_backup
 
 
+class AccountMismatch(ValueError):
+    def __init__(self, target):
+        super().__init__("Target account differs from backup. Use --allow-different-account if intentional")
+        self.target = target
+
+
 def summary(data):
     return {
         "account": data["name"], "id": data["id"], "version": data.get("version", "unknown"),
@@ -162,7 +168,7 @@ def check_account(client, data, allow_different):
     if not isinstance(me, dict) or not snowflake(me.get("id")) or not isinstance(me.get("username"), str):
         raise DiscordError("Unexpected target account response")
     if str(me["id"]) != str(data["id"]) and not allow_different:
-        raise ValueError("Target account differs from backup. Use --allow-different-account if intentional")
+        raise AccountMismatch(me)
     return me
 
 

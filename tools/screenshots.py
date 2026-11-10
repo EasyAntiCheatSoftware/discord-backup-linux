@@ -197,7 +197,7 @@ def animate(events, path):
     from PIL import Image
     if not events or 'COMPLETE' not in events[-1][1]:
         raise ValueError('Demo backup did not complete')
-    first_estimate = next((i for i, (_, text) in enumerate(events) if 'preliminary;' in text), 0)
+    first_estimate = next((i for i, (_, text) in enumerate(events) if 'Estimated full-account backup time' in text), 0)
     events = events[first_estimate:]
     if len(events) > 28:
         indices = sorted({round(i * (len(events) - 1) / 27) for i in range(28)})
@@ -219,7 +219,7 @@ def animate(events, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--capture', choices=('menu', 'backup', 'warnings'), help=argparse.SUPPRESS)
-    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.5.1/screenshots')
+    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.6.0/screenshots')
     args = parser.parse_args()
     if args.capture:
         return demo(args.capture)

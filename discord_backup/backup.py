@@ -11,8 +11,8 @@ import time
 
 from . import __version__
 from .api import DiscordError
-from .encryption import require_gpg, validate_passphrase
-from .progress import EstimateReporter, estimate_remaining
+from .encryption import encrypt, require_gpg, validate_passphrase
+from .progress import EstimateReporter, duration, estimate_remaining
 from .storage import BackupWriteError, backup_directory, private_directory, snowflake, validate_folders, write_backup
 
 
@@ -62,6 +62,9 @@ class Collector:
         self._profile_requests = 0
         self.progress_interval = progress_interval
         self._reporter = None
+        self._checkpoint_guess = 0.15
+        self._initial_estimate = None
+        self._calibration_seconds = 0
         require_gpg()
 
     def checkpoint(self, *, force=False):
@@ -105,7 +108,7 @@ class Collector:
         return [entry for entry in self.data["guilds"] if self.create_invites or
                 "VANITY_URL" in self._guild_lookup[entry["id"]].get("features", [])]
 
-    def estimate(self, *, force=False):
+    def estimate(self, *, force=False, before_start=False):
         sections = self.data["sections"]
         now = self.clock()
         if not force and now - self._last_estimate < 5:
@@ -117,7 +120,7 @@ class Collector:
             return None
         stats = self.client.performance()
         latency = stats["http_worker_seconds"] / stats["requests"] if stats["http_worker_seconds"] and stats["requests"] else 0.25
-        checkpoint = self.checkpoint_seconds / max(1, self.checkpoints_written)
+        checkpoint = self.checkpoint_seconds / self.checkpoints_written if self.checkpoints_written else self._checkpoint_guess
         metadata = {"guilds": 1, "direct-messages": 1, "profile": self._profile_requests,
                     "relationships": 1, "folders": 1, "favourite-gifs": 1}
         reads = sum(calls for key, calls in metadata.items() if key not in self.phase_seconds)
@@ -126,7 +129,7 @@ class Collector:
         groups = max(0, len(self.data["group-chats"]) - self._invite_done["Groups"]) if self.create_invites else 0
         hints = self.client.limiter.invite_forecast()
         remaining = estimate_remaining(request_seconds=latency, checkpoint_seconds=checkpoint,
-            metadata_requests=reads, checkpoints=max(1, 9 - len(self.phase_seconds)),
+            metadata_requests=reads, checkpoints=1 + int(self.path is None) + max(0, 8 - len(self.phase_seconds)),
             server_jobs=servers, server_requests_per_job=2 if self.create_invites else 1,
             group_jobs=groups, workers=self.workers, invite_wait=hints["wait_seconds"], serial_invites=hints["serial"])
         pending = [label for key, label in (("guilds", "server count pending"), ("direct-messages", "group count pending"))
@@ -135,7 +138,14 @@ class Collector:
                    if key in self.phase_seconds and sections.get(key) != "saved"]
         notes = (["preliminary; " + ", ".join(pending)] if pending else []) + (
                  ["available data only; " + ", ".join(missing)] if missing else [])
-        self._reporter.publish(self.data["name"], remaining=remaining, note="; ".join(notes))
+        if before_start:
+            self._initial_estimate = max(0, now - self._started) + remaining
+            title = 'Estimated backup attempt time' if missing else 'Estimated full-account backup time'
+            self.log(f"{title} for {self.data['name']}: about {duration(self._initial_estimate)} total")
+            self.log(f"Workload: {len(self.data['guilds'])} servers, {len(self.data['group-chats'])} groups; invitations {'enabled' if self.create_invites else 'disabled'}; {self.workers} workers")
+            if missing:
+                self.log("Estimate covers available data only: " + ", ".join(missing))
+        self._reporter.publish(self.data["name"], remaining=remaining, note="; ".join(notes), emit=False)
         self._last_estimate = now
         return remaining
 
@@ -144,7 +154,7 @@ class Collector:
         with EstimateReporter(self.log, clock=self.clock, interval=self.progress_interval,
                               hints=self.client.limiter.invite_forecast) as reporter:
             self._reporter = reporter
-            reporter.publish("selected account", note="checking account and loading its workload")
+            reporter.publish("selected account", note="analyzing whole-account workload before backup")
             try:
                 return self._run()
             finally:
@@ -167,22 +177,37 @@ class Collector:
             "friends": [], "blocked": [], "incoming": [], "outgoing": [],
             "guilds": [], "guild_folders": None, "group-chats": [], "dm-history": [],
         }
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-        self.path = private_directory(self.directory) / f"backup-{stamp}-{secrets.token_hex(6)}.bkup"
-        self._reporter.publish(me["username"], note="loading server/group counts")
-        self.checkpoint(force=True)
-        self.log(f"Backing up {user_label(me)}")
-        self.log("Estimating this account's backup time; reading its memberships first…")
+        self._reporter.publish(me["username"], note="analyzing whole-account workload before backup")
         self._profile_requests = int("bio" not in me or "banner" not in me) + sum(bool(me.get(key)) for key in ("avatar", "banner"))
-        self._pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="discord-backup")
         label = "preparation"
+        def new_path():
+            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+            return private_directory(self.directory) / f"backup-{stamp}-{secrets.token_hex(6)}.bkup"
         try:
             tasks = [("guilds", self.guilds), ("relationships", self.relationships),
                      ("direct-messages", self.channels), ("profile", lambda: self.profile(me)),
                      ("folders", self.folders), ("favourite-gifs", self.gifs),
                      ("server-invites", self.server_invites), ("group-invites", self.group_invites)]
             self.data["sections"] = {label: "pending" for label, _ in tasks}
-            for label, action in tasks:
+            # Read-only preparation is reused as backup data, without repeat HTTP calls.
+            for label, action in tasks[:3]:
+                self.log(f"Checking {label} for the account estimate…")
+                before = len(self.data["warnings"])
+                phase_started = self.clock()
+                self.optional(label, action)
+                self.phase_seconds[label] = round(self.clock() - phase_started, 3)
+                self.data["sections"][label] = "saved" if len(self.data["warnings"]) == before else "partial"
+            label = "preparation"
+            calibration_started = self.clock()
+            encrypt(b'{}', self.passphrase)  # In memory only; no backup file is written yet.
+            self._calibration_seconds = max(0, self.clock() - calibration_started)
+            self._checkpoint_guess = max(0.01, self._calibration_seconds)
+            self.estimate(force=True, before_start=True)
+            self.log(f"Starting encrypted backup for {user_label(me)}…")
+            self.path = new_path()
+            self.checkpoint(force=True)
+            self._pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="discord-backup")
+            for label, action in tasks[3:]:
                 self.log(f"Saving {label}…")
                 before = len(self.data["warnings"])
                 phase_started = self.clock()
@@ -197,16 +222,24 @@ class Collector:
             self.data["interrupted"] = True
             self.data["sections"][label] = "interrupted"
             reason = str(error) if isinstance(error, DiscordError) else "Cancelled"
+            self._reporter.publish(self.data['name'], note="stopping requests and saving an encrypted partial backup")
             self.warning(f"Backup interrupted: {reason}. Completed sections were preserved; later sections may not have been attempted")
+            if self.path is None:
+                self.path = new_path()
             raise BackupInterrupted(f"{reason}. Saved partial backup: {self.path}") from error
         finally:
-            self._pool.shutdown(wait=True, cancel_futures=True)
-            self._pool = None
+            if self._pool is not None:
+                self._pool.shutdown(wait=True, cancel_futures=True)
+                self._pool = None
+            if self.path is None:
+                self.path = new_path()
             self.data["finished_at"] = utc_now()
             self.data["duration_seconds"] = round(self.clock() - started, 2)
             self.data["cooldown_seconds"] = round(self.client.limiter.cooldown_seconds, 2)
             self.data["performance"] = {**self.client.performance(), "workers": self.workers,
                                         "phase_seconds": self.phase_seconds,
+                                        "estimated_total_seconds": self._initial_estimate,
+                                        "eta_calibration_seconds": round(self._calibration_seconds, 3),
                                         "checkpoint_seconds": round(self.checkpoint_seconds, 3)}
             self.checkpoint(force=True)
         return self.path, self.data
@@ -217,7 +250,7 @@ class Collector:
             return
         if self._pool is None or self.workers == 1:
             for index, entry in enumerate(entries, 1):
-                self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')} | {self._reporter.short()}")
+                self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')}")
                 entry["invite-code"] = self.optional(f"{label[:-1]} invite ({entry.get('name', 'Unknown')})", lambda entry=entry: action(entry))
                 self._invite_done[label] += 1
                 self.checkpoint()
@@ -228,7 +261,7 @@ class Collector:
             entry = futures[future]
             entry["invite-code"] = self.optional(f"{label[:-1]} invite ({entry.get('name', 'Unknown')})", future.result)
             self._invite_done[label] += 1
-            self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')} | {self._reporter.short()}")
+            self.log(f"{label} [{index}/{len(entries)}] {entry.get('name', 'Unknown')}")
             self.checkpoint()
             self.estimate()
 

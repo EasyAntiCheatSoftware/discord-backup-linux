@@ -10,14 +10,17 @@ import secrets
 import sys
 import tempfile
 import warnings
+import webbrowser
 
 from . import __version__
 from .api import DiscordClient, DiscordError
-from .backup import BackupInterrupted, Collector
+from .backup import BackupInterrupted, Collector, user_label
 from .encryption import validate_passphrase
-from .restore import export_recovery, restore_folders, restore_gifs, summary
+from .hub import BOT_PERMISSIONS, DiscordBotClient, bot_identity, hub_plan, prepare_hub, publish_hub, validate_bot_token
+from .restore import AccountMismatch, export_recovery, restore_folders, restore_gifs, summary
 from .schedule import install_schedule, passphrase_path, token_path
-from .storage import atomic_write, backup_directory, is_encrypted, read_backup, read_passphrase, read_token, validate_token, write_backup
+from .selection import remember_backup, select_backup
+from .storage import atomic_write, backup_directory, is_encrypted, read_backup, read_passphrase, read_private_secret, read_token, snowflake, validate_token, write_backup
 from .tokens import account_label, scan_tokens, validate_candidates
 from .terminal import console
 
@@ -55,6 +58,7 @@ def passphrase_for(args, *, creating=False):
 
 
 def load_backup(args):
+    args.backup = select_backup(args.backup, prompt=input, output=print, interactive=sys.stdin.isatty())
     password = passphrase_for(args) if is_encrypted(args.backup) else None
     return read_backup(args.backup, passphrase=password), password
 
@@ -143,20 +147,31 @@ def parser():
     add_auth_options(speed)
     add_backup_options(speed)
     inspect = commands.add_parser("inspect", help="Show a .bkup summary offline")
-    inspect.add_argument("backup", type=Path)
+    inspect.add_argument("backup", type=Path, nargs="?")
     add_passphrase_option(inspect)
     export = commands.add_parser("export", help="Create a local HTML recovery guide and extract profile images/bio")
-    export.add_argument("backup", type=Path)
+    export.add_argument("backup", type=Path, nargs="?")
     add_passphrase_option(export)
     export.add_argument("--output", type=Path, help="New directory for recovery files")
     for name, help_text in (("restore-folders", "Preview or apply the saved folder layout"), ("restore-gifs", "Preview or apply the saved frecency/GIF settings block")):
         command = commands.add_parser(name, help=help_text)
-        command.add_argument("backup", type=Path)
+        command.add_argument("backup", type=Path, nargs="?")
         add_auth_options(command)
         add_passphrase_option(command)
         command.add_argument("--apply", action="store_true", help="Apply changes; without this flag, only preview")
         command.add_argument("--allow-different-account", action="store_true")
         command.add_argument("--rollback-dir", type=Path, help="Directory for the before-change snapshot")
+    recover = commands.add_parser("recover", help="Choose a backup and use the guided recovery menu")
+    recover.add_argument("backup", type=Path, nargs="?", help="Optional backup file or folder to browse")
+    add_passphrase_option(recover)
+    hub = commands.add_parser("restore-hub", help="Preview or publish a private recovery hub through your own bot")
+    hub.add_argument("backup", type=Path, nargs="?")
+    add_passphrase_option(hub)
+    hub.add_argument("--bot-token-file", type=Path, help="Private file containing your bot token; otherwise hidden input")
+    hub.add_argument("--guild", help="Existing private recovery server ID; otherwise select from the bot's servers")
+    hub.add_argument("--include", nargs="+", choices=("servers", "groups", "relationships", "contacts", "warnings"),
+                     default=["servers", "groups", "relationships", "contacts", "warnings"])
+    hub.add_argument("--apply", action="store_true", help="Publish after showing the destination and plan; otherwise preview")
     listing = commands.add_parser("list", help="List local .bkup files")
     listing.add_argument("--directory", type=Path, default=None)
     save = commands.add_parser("save-token", help="Explicitly save your token with mode 0600 for unattended backups")
@@ -188,8 +203,10 @@ def execute(args):
             try:
                 path, data = collector.run()
             except BackupInterrupted:
+                remember_backup(collector.path)
                 console.backup_summary(summary(collector.data))
                 raise
+        remember_backup(path)
         print(f"Saved: {path}")
         console.backup_summary(summary(data))
         return 0 if data["status"] == "complete" else 2
@@ -209,6 +226,11 @@ def execute(args):
     if args.command == "inspect":
         data, _ = load_backup(args)
         print(json.dumps(summary(data), ensure_ascii=False, indent=2))
+    elif args.command == "recover":
+        return recovery_menu(args)
+    elif args.command == "restore-hub":
+        data, _ = load_backup(args)
+        return hub_flow(args, data)
     elif args.command == "export":
         data, _ = load_backup(args)
         output = args.output or args.backup.expanduser().with_name(args.backup.stem + "-recovery-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -276,6 +298,132 @@ def execute(args):
     return 0
 
 
+def settings_flow(args, data, password):
+    action = restore_folders if args.command == "restore-folders" else restore_gifs
+    with client_for(args) as client:
+        allow_different = getattr(args, "allow_different_account", False)
+        try:
+            plan = action(client, data, allow_different=allow_different, log=console.log)
+        except AccountMismatch as error:
+            print(f"Backup account: {data['name']} ({data['id']})")
+            print(f"Selected target: {user_label(error.target)} ({error.target['id']})")
+            if input("Type DIFFERENT to preview a restore on this other account, or press Enter to cancel: ").strip() != "DIFFERENT":
+                print("Different-account restore cancelled; nothing changed")
+                return
+            allow_different = True
+            plan = action(client, data, allow_different=True, log=console.log)
+        if plan is not None:
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+        if input("Type APPLY to save an encrypted rollback and apply this restore: ").strip() != "APPLY":
+            print("Preview finished; nothing changed")
+            return
+        password = password if password is not None else hidden_passphrase(creating=True)
+        options = {"expected_plan": plan} if args.command == "restore-folders" else {}
+        action(client, data, apply=True, passphrase=password, allow_different=allow_different,
+               directory=getattr(args, "rollback_dir", None), log=console.log, **options)
+
+
+def choose_hub_server(bot):
+    bot_identity(bot)
+    guilds = bot.guilds()
+    print("\nChoose a trusted recovery server you own. Its owner and administrators can read the recovered data.")
+    for index, guild in enumerate(guilds, 1):
+        print(f"  {index}  {guild.get('name', 'Server')} ({guild['id']})")
+    if not guilds:
+        application = bot.request("GET", "/oauth2/applications/@me")
+        if isinstance(application, dict) and snowflake(application.get("id")):
+            print("Add this bot to a private server using:")
+            print(f"https://discord.com/oauth2/authorize?client_id={application['id']}&scope=bot&permissions={BOT_PERMISSIONS}")
+        print("Create a private server in Discord if needed, then add the bot. No user account token is needed for this method.")
+    answer = input("Server number, a server ID, or 0 to cancel: ").strip()
+    if answer == "0":
+        raise ValueError("Recovery cancelled")
+    if answer.isascii() and answer.isdigit() and len(answer) <= 3 and 1 <= int(answer) <= len(guilds):
+        return str(guilds[int(answer) - 1]["id"])
+    return answer
+
+
+def hub_flow(args, data, *, confirm=False):
+    include = getattr(args, "include", ["servers", "groups", "relationships", "contacts", "warnings"])
+    hub_plan(data, include=include)  # Validate size and fields before asking for credentials.
+    print("Recovery hub: automatically organize saved links and contacts in private Discord channels.")
+    print("Joining servers, adding friends and changing your profile remain manual, as in the original project.")
+    guide = Path(__file__).resolve().parents[1] / "docs/RECOVERY_HUB.md"
+    if not guide.is_file():
+        guide = Path("/usr/share/doc/discord-backup-linux/RECOVERY_HUB.md")
+    print("Use your own bot in an existing trusted server. Setup guide:")
+    print(guide if guide.is_file() else "https://github.com/EasyAntiCheatSoftware/discord-backup-linux/blob/main/docs/RECOVERY_HUB.md")
+    token_file = getattr(args, "bot_token_file", None)
+    token = read_private_secret(token_file, label="Bot token") if token_file else hidden_input("Your bot token (hidden; not saved): ")
+    with DiscordBotClient(validate_bot_token(token), log=console.log) as bot:
+        guild_id = getattr(args, "guild", None)
+        if not guild_id:
+            if not sys.stdin.isatty():
+                raise ValueError("Use --guild with a recovery server ID for unattended operation")
+            guild_id = choose_hub_server(bot)
+        prepared = prepare_hub(bot, data, guild_id, include=include)
+        count = sum(len(messages) for messages in prepared["channels"].values())
+        guild = prepared["guild"]
+        print(f"\nDestination: {guild['name']} ({guild['id']}); owner {guild['owner_id']}")
+        print(f"Plan: 1 new private category, {len(prepared['channels'])} text channels, {count} messages")
+        print("Included: " + ", ".join(include))
+        print("This uploads decrypted backup data to Discord. The server owner, administrators and bot can access it.")
+        apply = getattr(args, "apply", False)
+        if confirm:
+            apply = input("Type PUBLISH to create this recovery hub, or press Enter to cancel: ").strip() == "PUBLISH"
+        if not apply:
+            print("Preview only; no channels or messages were created. Use --apply to publish from the command line.")
+            return 0
+        report = publish_hub(bot, prepared, log=console.log)
+        print(f"Recovery hub {report['status']}: {report['channels']} channels, {report['messages']} confirmed messages")
+        return 0 if report["status"] == "complete" else 2
+
+
+def recovery_menu(args):
+    data, password = load_backup(args)
+    source = args.backup
+    print(f"\nLoaded {source.name}")
+    print(f"Account: {data['name']} • {len(data.get('guilds', []))} servers • {len(data.get('friends', []))} friends • {len(data.get('group-chats', []))} groups")
+    while True:
+        print("\n  1  Local recovery page + profile files (offline)")
+        print("  2  Private Discord recovery hub (your bot)")
+        print("  3  Restore server folders (preview first)")
+        print("  4  Restore favourite GIF settings (preview first)")
+        print("  B  Choose another backup\n  0  Back")
+        choice = input("Recovery method [1]: ").strip().lower() or "1"
+        try:
+            if choice == "0":
+                return 0
+            if choice == "b":
+                args.backup = None
+                data, password = load_backup(args)
+                source = args.backup
+                print(f"Loaded {source.name} for {data['name']}")
+            elif choice == "1":
+                default = source.with_name(source.stem + "-recovery-" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2))
+                entered = input(f"New recovery folder [{default}]: ").strip()
+                page, notices = export_recovery(data, Path(entered).expanduser() if entered else default)
+                print(f"Recovery page: {page.resolve()}")
+                print("These files contain decrypted personal data. Keep the recovery folder private.")
+                for notice in notices:
+                    print(f"Warning: {notice}")
+                if input("Open the local recovery page in your browser? [y/N]: ").strip().lower() == "y":
+                    if not webbrowser.open(page.resolve().as_uri()):
+                        print("Open index.html from the recovery folder manually.")
+            elif choice == "2":
+                hub_args = parser().parse_args(["restore-hub", str(source)])
+                if input("Include friends, relationships and DM contact links in the hub? [Y/n]: ").strip().lower() == "n":
+                    hub_args.include = ["servers", "groups", "warnings"]
+                hub_flow(hub_args, data, confirm=True)
+            elif choice in ("3", "4"):
+                command = "restore-folders" if choice == "3" else "restore-gifs"
+                settings_flow(parser().parse_args([command, str(source)]), data, password)
+            else:
+                print("Choose one of the listed recovery methods.")
+        except (OSError, ValueError, DiscordError) as error:
+            print(f"Error: {error}", file=sys.stderr)
+
+
 def menu():
     console.banner(__version__, backup_directory())
     while True:
@@ -289,8 +437,7 @@ def menu():
             if input("Create server/group invites where permitted? [Y/n]: ").strip().lower() == "n":
                 command.append("--no-invites")
         elif choice in ("2", "3", "4"):
-            source = input("Path to .bkup file: ").strip()
-            command = [{"2": "export", "3": "restore-folders", "4": "restore-gifs"}[choice], source]
+            command = [{"2": "recover", "3": "restore-folders", "4": "restore-gifs"}[choice]]
         elif choice in ("5", "6", "7", "8", "9"):
             command = [{"5": "list", "6": "save-token", "7": "schedule", "8": "save-passphrase", "9": "speed-test"}[choice]]
         else:
@@ -300,17 +447,7 @@ def menu():
             if choice in ("3", "4"):
                 args = parser().parse_args(command)
                 data, password = load_backup(args)
-                action = restore_folders if choice == "3" else restore_gifs
-                with client_for(args) as client:
-                    plan = action(client, data, log=console.log)
-                    if plan is not None:
-                        print(json.dumps(plan, ensure_ascii=False, indent=2))
-                    if input("Type APPLY to save a rollback snapshot and apply this restore: ").strip() == "APPLY":
-                        password = password if password is not None else hidden_passphrase(creating=True)
-                        options = {"expected_plan": plan} if choice == "3" else {}
-                        action(client, data, apply=True, passphrase=password, log=console.log, **options)
-                    else:
-                        print("Preview finished; nothing changed")
+                settings_flow(args, data, password)
                 continue
             result = execute(parser().parse_args(command))
             if result == 2:

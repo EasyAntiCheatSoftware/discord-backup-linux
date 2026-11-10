@@ -46,6 +46,8 @@ class Console:
                 style = "cyan"
             elif text.startswith("Backing up "):
                 style = "purple"
+            elif text.startswith(("Estimated full-account", "Estimated backup attempt")):
+                style = "bold"
         with self._lock:
             builtins.print(self.paint(text, style, file), end=end, file=file, flush=flush)
 
@@ -66,7 +68,7 @@ class Console:
 
     def menu(self):
         self.print()
-        options = [("1", "Back up account", "encrypted"), ("2", "Unlock / export recovery page", ""),
+        options = [("1", "Back up account", "encrypted"), ("2", "Recover / restore a backup", "guided picker"),
                    ("3", "Restore server folders", "preview first"), ("4", "Restore favourite GIF settings", "preview first"),
                    ("5", "List backups", ""), ("6", "Save token for scheduled backups", ""),
                    ("7", "Set up automatic backups", ""), ("8", "Save passphrase for scheduled backups", ""),
@@ -89,6 +91,9 @@ class Console:
             self.print(f"  Discord waits  {data.get('cooldown_seconds', 0):.2f}s", style="dim")
         performance = data.get("performance", {})
         if performance:
+            estimate = performance.get("estimated_total_seconds")
+            if type(estimate) in (int, float):
+                self.print(f"  Initial estimate {estimate:.2f}s (whole backup)", style="dim")
             self.print(f"  HTTP requests  {performance['requests']}", style="dim")
             phases = performance.get("phase_seconds", {})
             if phases:

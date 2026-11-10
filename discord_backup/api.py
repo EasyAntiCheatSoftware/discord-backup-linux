@@ -87,6 +87,15 @@ def delay_seconds(value, *, maximum=120):
 
 
 class DiscordClient:
+    api_root = API_ROOT
+    credential_label = "account"
+
+    def authorization_header(self):
+        return self._token
+
+    def user_agent(self):
+        return f"DiscordBackupLinux/{__version__} (+https://github.com/EasyAntiCheatSoftware/discord-backup-linux)"
+
     def __init__(self, token, *, transport=None, sleep=time.sleep, clock=time.monotonic,
                  log=lambda message: None, limiter=None):
         self._token = validate_token(token)
@@ -143,9 +152,9 @@ class DiscordClient:
         body = None if payload is None else json.dumps(payload).encode("utf-8")
         for attempt in range(5):
             self.check_cancelled()
-            request = Request(API_ROOT + route, data=body, method=method, headers={
-                "Authorization": self._token,
-                "User-Agent": f"DiscordBackupLinux/{__version__} (+https://github.com/EasyAntiCheatSoftware/discord-backup-linux)",
+            request = Request(self.api_root + route, data=body, method=method, headers={
+                "Authorization": self.authorization_header(),
+                "User-Agent": self.user_agent(),
                 "Accept": "application/json", "Content-Type": "application/json",
             })
             with self.limiter.slot(method, route, self._cancelled):
@@ -172,7 +181,7 @@ class DiscordClient:
             if isinstance(data, dict) and ("captcha_key" in data or "captcha_sitekey" in data):
                 raise DiscordError("Discord requires a CAPTCHA; stop and use the official client", status, True)
             if status == 401:
-                raise DiscordError("Discord rejected the account token (HTTP 401)", 401, True)
+                raise DiscordError(f"Discord rejected the {self.credential_label} token (HTTP 401)", 401, True)
             if status == 429:
                 if attempt == 4:
                     raise DiscordError("Discord rate limit persisted; try again later", 429, True)

@@ -11,13 +11,13 @@ A terminal app for encrypted Discord account backups and offline recovery.
 ![Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-8b5cf6)](LICENSE)
 
-**[Quick start](#start-on-arch-linux) · [Download](builds/v1.5.1) · [Unlock a backup](UNLOCK_BACKUP.md) · [Commands](#commands)**
+**[Quick start](#start-on-arch-linux) · [Download](builds/v1.6.0) · [Unlock a backup](UNLOCK_BACKUP.md) · [Commands](#commands)**
 
 </div>
 
-![Demo backup with live account-specific ETA](builds/v1.5.1/screenshots/demo.gif)
+![Demo backup with live account-specific ETA](builds/v1.6.0/screenshots/demo.gif)
 
-*A real CLI demo captured in an isolated terminal and rendered with a neutral theme. Playback is slowed for readability. All accounts and data are synthetic; no personal desktop, terminal settings or account information are captured. [Static preview](builds/v1.5.1/screenshots/backup.png).*
+*A real CLI demo captured in an isolated terminal and rendered with a neutral theme. Playback is slowed for readability. All accounts and data are synthetic; no personal desktop, terminal settings or account information are captured. [Static preview](builds/v1.6.0/screenshots/backup.png).*
 
 This independent Linux reimplementation is **inspired by [ItsChasa's Discord-Backup](https://github.com/itschasa/Discord-Backup)**. Run it from source or install the Arch package. It needs **Python 3.10+, GnuPG 2.4+ and Requests**.
 
@@ -53,7 +53,7 @@ On another Linux distribution, install Python, GnuPG 2.4+, and Requests through 
 <details>
 <summary><strong>View the terminal menu</strong></summary>
 
-![Discord Backup Linux terminal menu](builds/v1.5.1/screenshots/menu.png)
+![Discord Backup Linux terminal menu](builds/v1.6.0/screenshots/menu.png)
 
 </details>
 
@@ -65,14 +65,14 @@ This creates **Discord Backup** in the desktop directory reported by `xdg-user-d
 
 ### Arch package
 
-A complete package and matching source archive are kept under [builds/v1.5.1](builds/v1.5.1). Check `SHA256SUMS` in that directory before installing. Packages are unsigned; checksums detect a damaged or mismatched download, not the identity of its publisher.
+A complete package and matching source archive are kept under [builds/v1.6.0](builds/v1.6.0). Check `SHA256SUMS` in that directory before installing. Packages are unsigned; checksums detect a damaged or mismatched download, not the identity of its publisher.
 
 To build locally instead:
 
 ```sh
 sudo pacman -S --needed base-devel python gnupg python-requests
 ./build-arch.sh
-sudo pacman -U dist/arch/discord-backup-linux-1.5.1-1-any.pkg.tar.zst
+sudo pacman -U dist/arch/discord-backup-linux-1.6.0-1-any.pkg.tar.zst
 discord-backup
 ```
 
@@ -80,16 +80,16 @@ Run the build as your normal user. `makepkg` checks the generated source checksu
 
 ## Watch the backup, not a blank terminal
 
-![Backup progress, account-specific estimate and completion summary](builds/v1.5.1/screenshots/backup.png)
+![Backup progress, account-specific estimate and completion summary](builds/v1.6.0/screenshots/backup.png)
 
-An **ETA line appears as soon as backup starts**, initially showing `calculating` and elapsed time while account/server details load. A numeric estimate appears after the server count is known, even while group discovery is pending; it is labeled preliminary until those counts finish loading. It uses this account's workload, enabled invitations, worker count, observed request latency and measured encryption cost. Every invitation progress line includes a short ETA, and a heartbeat repeats the status every five seconds during slow requests or waits. Known invite cooldowns and serial-mode changes are reflected as work progresses. This feature makes no extra API request and stores no account-history file.
+Before the main backup starts, a **read-only preparation step analyzes the whole account**: server/group counts, contacts, enabled invitations, worker count and observed request latency. A tiny in-memory encryption calibration estimates checkpoint cost. The app then displays **one estimated duration for the entire account backup**, before its first normal checkpoint or invitation write. Preparation responses are reused as backup data; no API calls are repeated just to estimate time. The headline includes preparation time, so it can be compared with the final elapsed time.
 
-The estimate is a guess: new throttles, retries, slow downloads or denied invite permissions can change it. Missing membership data produces an estimate labeled **available data only**, rather than a claim about the full account. If work exceeds the forecast, the status says **recalculating** instead of promising zero seconds. Close and reopen an already running menu after updating; an old Python process keeps the code it loaded at startup.
+During the run, a five-second heartbeat updates **overall account time remaining**. Server/group rows show counters, not individual ETAs. The summary shows the initial estimate beside actual time. Throttles, retries and downloads can change the guess; incomplete discovery is labeled **available data only** and an overrun says **recalculating**. Preparation failures still save collected data in an encrypted partial file. Reopen an already running menu after an update so it loads the new code.
 
 <details>
 <summary><strong>What a partial backup looks like</strong></summary>
 
-![Partial backup with readable warnings and recovery instructions](builds/v1.5.1/screenshots/warnings.png)
+![Partial backup with readable warnings and recovery instructions](builds/v1.6.0/screenshots/warnings.png)
 
 The final summary lists each warning, affected sections and unattempted work. Permission errors identify the missing item; invite failures explain that membership/contact data is kept. Completed data remains encrypted and usable. Unlock/export the file to recover it; missing sections need a new backup. Interrupted runs print the same warning summary before the error/path.
 
@@ -99,7 +99,7 @@ The final summary lists each warning, affected sections and unattempted work. Pe
 
 | With this app | Without this app |
 | --- | --- |
-| Choose **2 — Unlock / export recovery page**, select the `.bkup`, and enter its passphrase. Or use `inspect` / `export`. Works on the same machine or another Linux machine. | Use **GnuPG 2.4+** on Linux, macOS or Windows. Remove the eight-byte wrapper and decrypt with the same passphrase. No Discord token or original machine is needed. |
+| Choose **2 — Recover / restore a backup**, pick a recent `.bkup` or a custom folder/file, unlock it, then choose the local recovery page. Or use `inspect` / `export`. Works on the same machine or another Linux machine. | Use **GnuPG 2.4+** on Linux, macOS or Windows. Remove the eight-byte wrapper and decrypt with the same passphrase. No Discord token or original machine is needed. |
 
 **[Read the complete unlock guide →](UNLOCK_BACKUP.md)** — includes menu steps, terminal commands, Windows PowerShell, partial backups and troubleshooting. Keep the guide with your encrypted files and the passphrase separately.
 
@@ -116,6 +116,16 @@ The final summary lists each warning, affected sections and unattempted work. Pe
 | Favourite GIFs | Opaque `settings-proto/2` frecency block | Optional replacement of the entire block |
 
 The app reads legacy plaintext JSON `.bkup` files from the original program. Newly written backups encrypt the entire JSON payload and include timestamps, section results, warnings, and timings. The original Windows program cannot read this encrypted format. A backup cannot recover expired invitations, deleted data, lost membership, or messages it never collected. There is no automatic joining or friend-request replay.
+
+## Guided recovery
+
+Use **2 — Recover / restore a backup**. It searches current/default folders and the last location used in this session, lets you enter a custom folder or file, and unlocks the selected backup once. Choose a local recovery page, a private Discord bot hub, or a preview/apply settings restore.
+
+The bot creates a private category with organized invitations, contact lists and warnings in a trusted server you choose. It needs your own bot token and permission to manage channels and send messages. Review the destination and contents before typing **PUBLISH**. Server owners/admins can read the uploaded data. No user-account token is needed for this hub.
+
+Like the original project, joining servers/groups, adding friends and applying profile images/bio remain manual. A bot is not a universal CAPTCHA-free account-restore API. The offline recovery page remains available without any bot setup.
+
+**[Read the recovery and bot setup guide →](docs/RECOVERY_HUB.md)**
 
 ## Commands
 
@@ -135,6 +145,9 @@ Use `discord-backup` instead of `./run.sh` after installing the Arch package.
 ./run.sh scan
 ./run.sh scan --scan-browsers
 ./run.sh list
+./run.sh recover                  # Guided picker + recovery methods
+./run.sh recover /path/to/backups # Browse a custom folder
+./run.sh restore-hub /path/to/backup.bkup --guild SERVER_ID # Bot hub preview
 ./run.sh inspect /path/to/backup.bkup
 ./run.sh export /path/to/backup.bkup --output "$HOME/discord-recovery"
 ./run.sh restore-folders /path/to/backup.bkup
@@ -226,7 +239,7 @@ python3 tools/release.py
 
 Tests use synthetic accounts and transports, temporary files, and real GnuPG. They do not need a Discord account. CI runs the offline suite with Python 3.10 and 3.14. See [architecture](docs/ARCHITECTURE.md), [review notes](docs/REVIEW.md), [release procedure](docs/RELEASING.md), and [contributing](CONTRIBUTING.md).
 
-The 1.4.0 baseline received a source security review and targeted bug fixes before publication. Version 1.5 adds per-account time estimates, detailed end-of-run warnings and the screenshot/unlock documentation; 1.5.1 makes the ETA visible from startup and during blocked work. No confirmed security vulnerability was identified in the reviewed pre-fix source. This is not a guarantee of safety. The application is tested offline on Arch Linux; live Discord backup/restore behavior was not verified during the release review. CI results for Python 3.10 and 3.14 are linked in the badge above.
+The 1.4.0 baseline received a source security review and targeted bug fixes before publication. Version 1.5 adds per-account time estimates, detailed end-of-run warnings and the screenshot/unlock documentation; 1.5.1 makes progress visible during blocked work; 1.6.0 adds whole-account preflight timing, a guided backup picker and an official-bot recovery hub. No confirmed security vulnerability was identified in the reviewed pre-fix source. This is not a guarantee of safety. The application is tested offline on Arch Linux; live Discord backup/restore behavior was not verified during the release review. CI results for Python 3.10 and 3.14 are linked in the badge above.
 
 ## License and attribution
 

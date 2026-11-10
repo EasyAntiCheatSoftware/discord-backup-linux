@@ -4,10 +4,10 @@ The same `.bkup` file works on the original machine or another machine. You need
 
 ## With the app — same machine or another Linux machine
 
-1. Open **Discord Backup** and choose **2 — Unlock / export recovery page**.
-2. Enter the path to the `.bkup` file.
+1. Open **Discord Backup** and choose **2 — Recover / restore a backup**.
+2. Select a recent backup from the current/default folders, or enter a custom folder/file path.
 3. Enter its backup passphrase in the hidden prompt.
-4. Open `index.html` in the new recovery directory printed by the app.
+4. Choose **1 — Local recovery page + profile files**, select a new output directory, and open its `index.html`.
 
 The export includes saved profile images, bio, contact/profile links, server/group invitations and warnings. It contains **decrypted personal data**. Keep that directory private. Export requires a new directory so it cannot overwrite a previous export.
 

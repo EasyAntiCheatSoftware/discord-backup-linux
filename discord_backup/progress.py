@@ -54,20 +54,11 @@ class EstimateReporter:
         self._stop.set()
         self._thread.join()
 
-    def publish(self, account, *, remaining=None, note=""):
+    def publish(self, account, *, remaining=None, note="", emit=True):
         with self._lock:
             self._snapshot = (account, remaining, note, self.clock())
-            self._emit()
-
-    def short(self):
-        """Small ETA for each invitation progress line so it cannot scroll away."""
-        with self._lock:
-            if self._snapshot is None or self._snapshot[1] is None:
-                return "ETA calculating"
-            _, remaining, _, sampled = self._snapshot
-            wait = max(0, self.hints().get("wait_seconds", 0))
-            remaining = max(0, remaining - max(0, self.clock() - sampled), wait)
-            return f"ETA ~{duration(remaining)} left" if remaining else "ETA recalculating"
+            if emit:
+                self._emit()
 
     def _emit(self):
         if self._snapshot is None:
@@ -84,7 +75,8 @@ class EstimateReporter:
             if remaining <= 0:
                 message = f"ETA for {account}: recalculating — current work is taking longer than estimated"
             else:
-                message = f"ETA for {account}: about {duration(remaining)} remaining / {duration(elapsed + remaining)} total"
+                scope = "backup-attempt total" if 'available data only' in note else "whole-account total"
+                message = f"ETA for {account}: about {duration(remaining)} remaining / {duration(elapsed + remaining)} {scope}"
                 if note:
                     message += f" ({note})"
         message += f" | elapsed {elapsed_text}"

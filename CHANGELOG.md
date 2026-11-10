@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 — 2026-11-09
+
+- Analyze and reuse the account workload before the main backup, then display one whole-account time estimate before the first normal checkpoint or invitation. Calibrate encryption in memory, retain an overall heartbeat, and show the initial estimate with actual elapsed time. Resource rows have counters only. Preparation errors preserve collected data in an encrypted partial file.
+- Add a recent-backup picker across current/default/session locations, custom folder browsing and direct file selection. Omitted paths open the picker in interactive recovery commands.
+- Add a guided recovery menu that unlocks once, exports a local page/profile files, previews settings restores, or prepares a private bot recovery hub. Cross-account settings restores show both identities and require explicit target/apply confirmation.
+- Add a separate official v10 Bot-auth client and a preview/apply publisher for private recovery categories/channels. Validate destination binding and permissions, disable mentions/embeds, bound messages and stop on ambiguous writes without deleting partial work.
+- Document bot setup and the original project's manual joining/friend/profile steps. No CAPTCHA bypass or automatic arbitrary-server joining is added.
+
 ## 1.5.1 — 2026-11-09
 
 - Replace the README lead screenshot with an animated synthetic backup demo and retain a static preview.

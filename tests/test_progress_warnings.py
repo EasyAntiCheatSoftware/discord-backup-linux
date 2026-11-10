@@ -55,7 +55,7 @@ class EstimateTests(TemporaryTest):
     def test_estimate_is_printed_for_this_account_without_extra_requests(self):
         http, logs = FakeHTTP(), []
         _, data = Collector(http.client(), self.directory, passphrase=PASSWORD, log=logs.append).run()
-        estimates = [message for message in logs if message.startswith('ETA for example: about')]
+        estimates = [message for message in logs if message.startswith('Estimated full-account backup time for example:')]
         self.assertTrue(estimates)
         self.assertLess(next(i for i, line in enumerate(logs) if line.startswith('ETA for')),
                         logs.index('Saving server-invites…'))
@@ -67,16 +67,16 @@ class EstimateTests(TemporaryTest):
     def test_incomplete_memberships_get_a_labeled_available_data_estimate(self):
         http, logs = FakeHTTP({('GET', '/users/@me/channels'): (404, {}, {})}), []
         Collector(http.client(), self.directory, passphrase=PASSWORD, log=logs.append).run()
-        estimates = [line for line in logs if 'ETA for example: about' in line and 'available data only' in line]
-        self.assertTrue(estimates)
-        self.assertTrue(all('group list unavailable' in line for line in estimates))
+        self.assertTrue(any('Estimated backup attempt time for example:' in line for line in logs))
+        self.assertTrue(any('Estimate covers available data only: group list unavailable' in line for line in logs))
+        self.assertFalse(any('Estimated full-account backup time for example:' in line for line in logs))
 
-    def test_initial_eta_precedes_first_request_and_numeric_eta_precedes_groups(self):
+    def test_initial_status_precedes_requests_and_whole_account_estimate_precedes_backup(self):
         http, logs = FakeHTTP(), []
         initial_channels = http.routes[('GET', '/users/@me/channels')]
 
         def channels(request):
-            self.assertTrue(any('ETA for example: about' in line and 'group count pending' in line for line in logs))
+            self.assertFalse(any('Estimated full-account backup time' in line for line in logs))
             return initial_channels
 
         http.routes[('GET', '/users/@me/channels')] = channels
@@ -84,14 +84,19 @@ class EstimateTests(TemporaryTest):
 
         def log(message):
             logs.append(message)
+            if message.startswith('Estimated full-account backup time'):
+                self.assertFalse(list(self.directory.glob('*.bkup')))
+                self.assertEqual(http.writes(), [])
             if message.startswith('ETA for'):
                 calls_at_eta.append(len(http.calls))
 
         Collector(http.client(), self.directory, passphrase=PASSWORD, log=log).run()
         self.assertEqual(calls_at_eta[0], 0)
+        headline = next(i for i, line in enumerate(logs) if line.startswith('Estimated full-account backup time'))
+        self.assertLess(headline, next(i for i, line in enumerate(logs) if line.startswith('Starting encrypted backup')))
         progress = [line for line in logs if line.startswith(('Servers [', 'Groups ['))]
         self.assertTrue(progress)
-        self.assertTrue(all(' | ETA ' in line for line in progress))
+        self.assertTrue(all('ETA' not in line for line in progress))
 
     def test_eta_keeps_printing_while_membership_request_is_blocked(self):
         blocked, heartbeat = threading.Event(), threading.Event()
@@ -129,7 +134,7 @@ class EstimateTests(TemporaryTest):
                 reporter.publish('example', remaining=3)
                 hints['wait_seconds'] = 20
                 self.assertTrue(tick.wait(2))
-                self.assertEqual(reporter.short(), 'ETA ~20s left')
+                self.assertTrue(any('20s remaining' in line and 'whole-account total' in line for line in output))
                 raise ValueError('synthetic stop')
         self.assertFalse(reporter._thread.is_alive())
 
@@ -139,7 +144,6 @@ class EstimateTests(TemporaryTest):
         with reporter:
             reporter.publish('example', remaining=1)
             clock.now += 10
-            self.assertEqual(reporter.short(), 'ETA recalculating')
             with reporter._lock:
                 reporter._emit()
         self.assertIn('taking longer than estimated', output[-1])
