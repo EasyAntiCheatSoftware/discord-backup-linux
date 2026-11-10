@@ -24,6 +24,7 @@ def installed_files(root=ROOT):
         **{f"usr/share/doc/discord-backup-linux/{name}": name for name in ("README.md", "UNLOCK_BACKUP.md", "NOTICE")},
         "usr/share/licenses/discord-backup-linux/LICENSE": "LICENSE",
         "usr/share/doc/discord-backup-linux/RECOVERY_HUB.md": "docs/RECOVERY_HUB.md",
+        "usr/share/doc/discord-backup-linux/USAGE.md": "docs/USAGE.md",
     })
     return mapping
 

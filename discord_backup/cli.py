@@ -20,7 +20,7 @@ from .hub import BOT_PERMISSIONS, DiscordBotClient, bot_identity, hub_plan, prep
 from .restore import AccountMismatch, export_recovery, restore_folders, restore_gifs, summary
 from .schedule import install_schedule, passphrase_path, token_path
 from .selection import remember_backup, select_backup
-from .storage import atomic_write, backup_directory, is_encrypted, read_backup, read_passphrase, read_private_secret, read_token, snowflake, validate_token, write_backup
+from .storage import atomic_write, backup_directory, is_encrypted, is_partial, read_backup, read_passphrase, read_private_secret, read_token, recovery_notice, snowflake, validate_token, write_backup
 from .tokens import account_label, scan_tokens, validate_candidates
 from .terminal import console
 
@@ -85,7 +85,13 @@ def passphrase_for(args, *, creating=False):
 def load_backup(args):
     args.backup = select_backup(args.backup, prompt=input, output=print, interactive=sys.stdin.isatty())
     password = passphrase_for(args) if is_encrypted(args.backup) else None
-    return read_backup(args.backup, passphrase=password), password
+    data = read_backup(args.backup, passphrase=password)
+    if is_partial(data):
+        stream = sys.stderr if args.command == "inspect" else sys.stdout
+        print("\nPARTIAL BACKUP", style="yellow", file=stream)
+        print(recovery_notice(data), file=stream)
+        print("Section status: " + ", ".join(f"{key}: {state}" for key, state in data.get("sections", {}).items()), file=stream)
+    return data, password
 
 
 def scan_accounts(args):
@@ -239,7 +245,7 @@ def execute(args):
             print("Speed test: encrypted backup files are temporary and will be deleted automatically.")
             with client_for(args) as client:
                 _, data = Collector(client, temporary.name, passphrase=secrets.token_urlsafe(32),
-                                    create_invites=not args.no_invites, workers=args.workers, log=console.log).run()
+                                    create_invites=not args.no_invites, workers=args.workers, log=console.log, use_history=False).run()
             console.backup_summary(summary(data))
             print(json.dumps(data["performance"], indent=2))
             return 0 if data["status"] == "complete" else 2

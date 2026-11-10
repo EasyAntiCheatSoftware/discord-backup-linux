@@ -102,6 +102,9 @@ class TemporaryTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.directory = Path(self.temporary.name)
+        self._xdg = patch.dict(os.environ, {"XDG_DATA_HOME": str(self.directory / "data")})
+        self._xdg.start()
+        self.addCleanup(self._xdg.stop)
 
     def tearDown(self):
         self.temporary.cleanup()

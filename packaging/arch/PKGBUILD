@@ -1,6 +1,6 @@
 # Template: tools/release.py replaces the source checksum before makepkg.
 pkgname=discord-backup-linux
-pkgver=1.6.1
+pkgver=1.7.0
 pkgrel=1
 pkgdesc='Discord account backups and local recovery tools for Linux'
 arch=('any')
@@ -26,6 +26,7 @@ package() {
     install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
     install -Dm644 UNLOCK_BACKUP.md "$pkgdir/usr/share/doc/$pkgname/UNLOCK_BACKUP.md"
     install -Dm644 docs/RECOVERY_HUB.md "$pkgdir/usr/share/doc/$pkgname/RECOVERY_HUB.md"
+    install -Dm644 docs/USAGE.md "$pkgdir/usr/share/doc/$pkgname/USAGE.md"
     install -Dm644 NOTICE "$pkgdir/usr/share/doc/$pkgname/NOTICE"
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

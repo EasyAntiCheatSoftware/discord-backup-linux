@@ -17,6 +17,19 @@ class BackupWriteError(ValueError):
     """A local persistence failure, never an optional Discord format warning."""
 
 
+def is_partial(data):
+    return data.get("status") == "partial" or data.get("interrupted") is True or any(
+        state in ("partial", "pending", "interrupted") for state in data.get("sections", {}).values())
+
+
+def recovery_notice(data):
+    if is_partial(data):
+        return ("PARTIAL BACKUP: collection did not finish successfully. Saved sections, contacts, profile files and "
+                "available invitations can still be recovered. Check sections and warnings for missing work; "
+                "a new backup is needed to collect missing data. This file cannot be resumed.")
+    return "Complete backup. Check warnings and invitation validity before recovery."
+
+
 def xdg_path(variable, fallback):
     value = os.environ.get(variable, "")
     return Path(value) if value and Path(value).is_absolute() else Path.home() / fallback
@@ -55,7 +68,7 @@ def write_backup(path, data, *, passphrase):
         content = (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         if len(content) > MAX_BACKUP_BYTES:
             raise ValueError("Backup exceeds the 64 MiB limit; previous checkpoint was preserved")
-        atomic_write(path, encrypt(content, passphrase))
+        atomic_write(path, encrypt(content, passphrase, filename="backup-partial.json" if is_partial(data) else "backup.json"))
     except (ValueError, RecursionError) as error:
         raise BackupWriteError(str(error)) from error
 
@@ -122,6 +135,17 @@ def read_backup(path, *, passphrase=None):
             raise ValueError(f"Invalid {key} in backup")
     if not isinstance(data.get("users", {}), dict) or not isinstance(data.get("warnings", []), list):
         raise ValueError("Invalid backup metadata")
+    if not isinstance(data.get("sections", {}), dict) or any(
+            not isinstance(key, str) or state not in ("saved", "partial", "pending", "interrupted")
+            for key, state in data.get("sections", {}).items()):
+        raise ValueError("Invalid backup section status")
+    if "status" in data and data["status"] not in ("partial", "complete"):
+        raise ValueError("Invalid backup status")
+    if "interrupted" in data and type(data["interrupted"]) is not bool:
+        raise ValueError("Invalid interruption status")
+    if is_partial(data):
+        data["status"] = "partial"
+        data["recovery_notice"] = recovery_notice(data)
     for key in ("duration_seconds", "cooldown_seconds"):
         if key in data and (type(data[key]) not in (int, float) or not 0 <= data[key] <= 1e12 or not math.isfinite(data[key])):
             raise ValueError(f"Invalid {key} in backup")

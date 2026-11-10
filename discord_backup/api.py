@@ -124,8 +124,10 @@ class DiscordClient:
 
     def performance(self):
         with self._stats_lock:
-            return {"requests": self.requests_made, "http_worker_seconds": round(self.http_seconds, 3),
-                    "endpoints": {key: dict(value) for key, value in self.endpoint_stats.items()}}
+            result = {"requests": self.requests_made, "http_worker_seconds": round(self.http_seconds, 3),
+                      "endpoints": {key: dict(value) for key, value in self.endpoint_stats.items()}}
+        result.update(self.limiter.notice_statistics())
+        return result
 
     def close(self):
         if self._owns_transport:
@@ -252,13 +254,42 @@ class RateLimiter:
         self.template_until, self.template_failures = {}, {}
         self.serial_templates = set()
         self.cooldown_seconds = 0
+        self._waiting_until = {}
+        self._last_notice = float("-inf")
+        self._notice_until = 0
+        self._grouped_since_notice = 0
+        self._grouped_total = 0
+        self.rate_limit_responses = 0
+
+    def notice_statistics(self):
+        with self._condition:
+            return {"rate_limit_responses": self.rate_limit_responses,
+                    "rate_limit_notices_grouped": self._grouped_total}
+
+    def _rate_notice(self, until):
+        """Coalesce output across all workers; never change request deadlines."""
+        now = self.clock()
+        self._notice_until = max(self._notice_until, until)
+        if now - self._last_notice < 30:
+            self._grouped_since_notice += 1
+            self._grouped_total += 1
+            return
+        message = f"Waiting {max(0, self._notice_until - now):.1f}s for Discord's rate limits; automatic retries continue"
+        if self.serial_templates:
+            message += "; invite requests run one at a time"
+        if self._grouped_since_notice:
+            message += f" ({self._grouped_since_notice} repeated notices grouped)"
+        self.log(message + ". Rate-limit updates appear at most every 30s.")
+        self._last_notice = now
+        self._grouped_since_notice = 0
 
     def invite_forecast(self):
         """Read-only hints for the progress estimate; never reserve or send a request."""
         key = ("POST", "/channels/{channel_id}/invites")
         with self._condition:
             return {
-                "wait_seconds": max(0, max(self.global_until, self.template_until.get(key, 0)) - self.clock()),
+                "wait_seconds": max(0, max(self.global_until, self.template_until.get(key, 0),
+                                          max(self._waiting_until.values(), default=0)) - self.clock()),
                 "serial": key in self.serial_templates,
             }
 
@@ -343,11 +374,12 @@ class RateLimiter:
                 server_wait = cooldown > now
                 if server_wait:
                     if not announced:
-                        self.log(f"Waiting {cooldown - now:.2f}s for Discord's rate-limit window")
+                        self._rate_notice(cooldown)
                         announced = True
                     if not self._waiting:
                         self._wait_started = now
                     self._waiting += 1
+                    self._waiting_until[threading.get_ident()] = cooldown
             try:
                 # Short waits recheck global limits discovered by another worker.
                 if cancelled is not None and self.sleep is time.sleep:
@@ -358,6 +390,7 @@ class RateLimiter:
                 if server_wait:
                     with self._condition:
                         self._waiting -= 1
+                        self._waiting_until.pop(threading.get_ident(), None)
                         if not self._waiting:
                             self.cooldown_seconds += max(0, self.clock() - self._wait_started)
 
@@ -385,6 +418,7 @@ class RateLimiter:
                 available = min(available, previous[0])
             self._budgets[bucket] = [available, until]
         if status == 429:
+            self.rate_limit_responses += 1
             values = [headers["retry-after"]] if "retry-after" in headers else []
             if isinstance(data, dict) and "retry_after" in data:
                 values.append(data["retry_after"])
@@ -393,8 +427,6 @@ class RateLimiter:
             if key == ("POST", "/channels/{channel_id}/invites"):
                 strikes = self.template_failures.get(key, 0) + 1
                 self.template_failures[key] = strikes
-                if key not in self.serial_templates:
-                    self.log("Rate limited during invite creation; switching to one invite request at a time")
                 self.serial_templates.add(key)
                 backoff = min(16, 2 ** min(strikes - 1, 4))
                 self.template_until[key] = max(self.template_until.get(key, 0), self.clock() + max(delay, backoff) + 0.25)
@@ -404,7 +436,7 @@ class RateLimiter:
             else:
                 self.route_until[scope] = max(self.route_until.get(scope, 0), until)
                 self.bucket_until[bucket] = max(self.bucket_until.get(bucket, 0), until)
-            self.log(f"Rate limited ({'global' if global_limit else 'endpoint'}); retrying after the cooldown")
+            self._rate_notice(max(until, self.template_until.get(key, 0)))
         elif headers.get("x-ratelimit-remaining") == "0":
             delay = delay_seconds(headers.get("x-ratelimit-reset-after", 1))
             until = self.clock() + delay + 0.25

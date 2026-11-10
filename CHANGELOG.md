@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0 — 2026-11-10
+
+- Group repeated rate-limit and budget-wait notices across workers into at most one update every 30 seconds. Preserve all request deadlines, backoff/retry bounds and serial-invite fallback. Show throttle and grouped-notice counts in the final summary.
+- Keep new files named `-partial.bkup` until the final successful encrypted complete checkpoint. Preserve successful unconsumed invite results while stopping workers, and retain readable checkpoints after later disk/encryption failures.
+- Identify partial recovery in the picker, after unlock and in the HTML export. Store readable recovery status in the authenticated JSON and use `backup-partial.json` as the encrypted payload filename. Expand standalone Linux/macOS/Windows instructions to show status, sections and warnings without this app.
+- Improve whole-account forecasts with observed invite wall time, periodic encryption costs and newly extended cooldowns. Reuse up to five private recent timing samples for the same account and worker/invite options; exclude interrupted runs and speed tests. First-run predictions explicitly note unknown future throttles.
+- Shorten the README and move advanced scanning, storage, restore, scheduling and performance details to a linked guide. Keep the demo GIF, upstream attribution and cross-machine recovery instructions.
+
 ## 1.6.1 — 2026-11-10
 
 - Retry invalid yes/no answers at the same prompt instead of silently choosing a default. Accept y/yes and n/no without case sensitivity; only an empty answer selects the displayed default.

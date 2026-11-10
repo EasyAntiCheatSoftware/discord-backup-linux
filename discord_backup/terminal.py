@@ -95,6 +95,9 @@ class Console:
             if type(estimate) in (int, float):
                 self.print(f"  Initial estimate {estimate:.2f}s (whole backup)", style="dim")
             self.print(f"  HTTP requests  {performance['requests']}", style="dim")
+            if performance.get("rate_limit_responses") or performance.get("rate_limit_notices_grouped"):
+                self.print(f"  Rate limits    {performance.get('rate_limit_responses', 0)} responses; "
+                           f"{performance.get('rate_limit_notices_grouped', 0)} repeated notices grouped", style="dim")
             phases = performance.get("phase_seconds", {})
             if phases:
                 phase = max(phases, key=phases.get)

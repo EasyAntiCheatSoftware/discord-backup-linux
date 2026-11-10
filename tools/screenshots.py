@@ -30,6 +30,7 @@ def demo(mode):
     sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
     from test_backup import FakeHTTP, TOKEN
     from discord_backup.api import DiscordClient
+    from discord_backup.backup import Collector
     from discord_backup.cli import main
     if mode == 'menu':
         print('$ ./run.sh', flush=True)
@@ -61,6 +62,7 @@ def demo(mode):
     with tempfile.TemporaryDirectory(prefix='discord-screenshot-data-') as directory:
         os.chdir(directory)
         with patch('discord_backup.cli.client_for', return_value=DiscordClient(TOKEN, transport=transport)), \
+             patch('discord_backup.cli.Collector', side_effect=lambda *args, **options: Collector(*args, **{**options, 'use_history': False})), \
              patch('discord_backup.cli.passphrase_for', return_value=secrets.token_urlsafe(32)), \
              patch('socket.socket.connect', side_effect=RuntimeError('Live network disabled in screenshot capture')):
             print('$ ./run.sh backup', flush=True)
@@ -219,7 +221,7 @@ def animate(events, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--capture', choices=('menu', 'backup', 'warnings'), help=argparse.SUPPRESS)
-    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.6.1/screenshots')
+    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.7.0/screenshots')
     args = parser.parse_args()
     if args.capture:
         return demo(args.capture)

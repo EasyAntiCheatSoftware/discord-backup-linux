@@ -29,7 +29,7 @@ http = FakeHTTP(routes)
 with tempfile.TemporaryDirectory(prefix="discord-benchmark-") as task_dir:
     with patch("discord_backup.backup.write_backup", wraps=write_backup) as writes:
         start = time.perf_counter()
-        _, data = Collector(http.client(), task_dir, passphrase=PASSWORD, log=lambda value: None).run()
+        _, data = Collector(http.client(), task_dir, passphrase=PASSWORD, log=lambda value: None, use_history=False).run()
         elapsed = time.perf_counter() - start
         result = {"seconds": round(elapsed, 3), "encrypted_writes": writes.call_count,
                   "api_requests": len(http.calls), "guilds": len(data["guilds"]), "groups": len(data["group-chats"]),

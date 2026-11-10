@@ -62,7 +62,8 @@ def select_backup(source=None, *, prompt=input, output=print, interactive=True):
         files = find_backups(locations)
         output('\nChoose a backup — newest first')
         for index, (_, path, size) in enumerate(files, 1):
-            output(f'  {index:>2}  {path.name}  ({size / 1024:.1f} KiB)')
+            marker = ' [PARTIAL]' if path.name.endswith('-partial.bkup') else ''
+            output(f'  {index:>2}  {path.name}{marker}  ({size / 1024:.1f} KiB)')
             output(f'      {path.parent}')
         if not files:
             output('No .bkup files found in these folders.')

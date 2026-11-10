@@ -28,7 +28,7 @@ def require_gpg():
     return executable
 
 
-def _run_gpg(content, passphrase, *, encrypting):
+def _run_gpg(content, passphrase, *, encrypting, filename="backup.json"):
     executable = require_gpg()
     validate_passphrase(passphrase, creating=encrypting)
     read_fd, write_fd = os.pipe()
@@ -44,7 +44,7 @@ def _run_gpg(content, passphrase, *, encrypting):
             if encrypting:
                 arguments.extend(["--cipher-algo", "AES256", "--force-ocb", "--s2k-mode", "3",
                                   "--s2k-count", "65011712", "--s2k-digest-algo", "SHA512",
-                                  "--compress-algo", "none", "--set-filename", "backup.json", "--symmetric"])
+                                  "--compress-algo", "none", "--set-filename", filename, "--symmetric"])
             else:
                 arguments.extend(["--max-output", str(MAX_PLAINTEXT), "--decrypt"])
             try:
@@ -73,10 +73,12 @@ def _run_gpg(content, passphrase, *, encrypting):
             os.close(write_fd)
 
 
-def encrypt(content, passphrase):
+def encrypt(content, passphrase, *, filename="backup.json"):
+    if filename not in ("backup.json", "backup-partial.json"):
+        raise ValueError("Invalid encrypted payload filename")
     if len(content) > MAX_PLAINTEXT:
         raise ValueError("Backup exceeds the 64 MiB limit; previous checkpoint was preserved")
-    return MAGIC + _run_gpg(content, passphrase, encrypting=True)
+    return MAGIC + _run_gpg(content, passphrase, encrypting=True, filename=filename)
 
 
 def decrypt(content, passphrase):

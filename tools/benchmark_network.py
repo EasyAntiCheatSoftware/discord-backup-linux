@@ -48,7 +48,7 @@ def measure(workers, latency):
     with tempfile.TemporaryDirectory(prefix="discord-network-benchmark-") as directory:
         with DiscordClient(TOKEN, transport=transport) as client:
             started = time.perf_counter()
-            _, data = Collector(client, directory, workers=workers, passphrase=PASSWORD, log=lambda value: None).run()
+            _, data = Collector(client, directory, workers=workers, passphrase=PASSWORD, log=lambda value: None, use_history=False).run()
             elapsed = time.perf_counter() - started
     return {"workers": workers, "simulated_latency_ms": round(latency * 1000), "seconds": round(elapsed, 3),
             "api_requests": len(backend.calls), "peak_inflight": peak, "guilds": len(data["guilds"]),

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Account-workload time estimates; no account history or extra network requests."""
+"""Whole-account workload estimates and a heartbeat without extra network requests."""
 
 import math
 import threading
@@ -19,18 +19,23 @@ def duration(seconds):
 
 def estimate_remaining(*, request_seconds, checkpoint_seconds, metadata_requests,
                        checkpoints, server_jobs, server_requests_per_job, group_jobs,
-                       workers, invite_wait=0, serial_invites=False):
+                       workers, invite_wait=0, serial_invites=False, server_seconds_per_job=None,
+                       group_seconds_per_job=None, metadata_seconds=None, checkpoint_interval=None):
     """Rough wall time from this run's latency, work counts and known invite pause."""
     latency = max(0.01, request_seconds)
     parallel = 1 if serial_invites else workers
-    metadata = metadata_requests * latency
-    server_work = math.ceil(server_jobs / parallel) * server_requests_per_job * latency
-    group_work = math.ceil(group_jobs / parallel) * latency
+    metadata = metadata_requests * latency if metadata_seconds is None else metadata_seconds
+    server_work = (math.ceil(server_jobs / parallel) * server_requests_per_job * latency
+                   if server_seconds_per_job is None else server_jobs * server_seconds_per_job)
+    group_work = math.ceil(group_jobs / parallel) * latency if group_seconds_per_job is None else group_jobs * group_seconds_per_job
     # The start-rate guard applies even when the observed request latency is tiny.
     request_work = server_jobs * server_requests_per_job + group_jobs
     invitations = max(server_work + group_work, request_work / 25)
     pause = max(0, invite_wait - metadata) if request_work else 0
-    return metadata + pause + invitations + checkpoints * max(0.01, checkpoint_seconds)
+    periodic = 0
+    if checkpoint_interval is not None:
+        periodic = min(server_jobs + group_jobs, int(invitations / checkpoint_interval)) if checkpoint_interval > 0 else server_jobs + group_jobs
+    return metadata + pause + invitations + (checkpoints + periodic) * max(0.01, checkpoint_seconds)
 
 
 class EstimateReporter:
@@ -56,14 +61,14 @@ class EstimateReporter:
 
     def publish(self, account, *, remaining=None, note="", emit=True):
         with self._lock:
-            self._snapshot = (account, remaining, note, self.clock())
+            self._snapshot = (account, remaining, note, self.clock(), max(0, self.hints().get("wait_seconds", 0)))
             if emit:
                 self._emit()
 
     def _emit(self):
         if self._snapshot is None:
             return
-        account, remaining, note, sampled = self._snapshot
+        account, remaining, note, sampled, sampled_wait = self._snapshot
         now = self.clock()
         elapsed = max(0, now - self.started)
         elapsed_text = duration(int(elapsed)) if elapsed >= 1 else "0s"
@@ -71,7 +76,10 @@ class EstimateReporter:
         if remaining is None:
             message = f"ETA for {account}: calculating — {note}"
         else:
-            remaining = max(0, remaining - max(0, now - sampled), wait)
+            since_sample = max(0, now - sampled)
+            # A new/extended cooldown delays pending work; it is not just a floor.
+            extra_wait = max(0, wait - max(0, sampled_wait - since_sample))
+            remaining = max(0, remaining - since_sample) + extra_wait
             if remaining <= 0:
                 message = f"ETA for {account}: recalculating — current work is taking longer than estimated"
             else:

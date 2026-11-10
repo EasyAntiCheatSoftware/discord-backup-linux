@@ -33,10 +33,28 @@ From the directory containing your backup:
 
 ```sh
 umask 077
-tail -c +9 "backup.bkup" | gpg --output "backup.json" --decrypt
+tail -c +9 "backup.bkup" | gpg --verbose --output "backup.json" --decrypt
 ```
 
 Replace `backup.bkup` with its real filename. GnuPG asks for the passphrase; do not put the passphrase in the command. Choose a new output filename if `backup.json` exists. Accept the output only when GnuPG reports successful decryption without integrity errors. Discard a partial output file left by a failed decryption.
+
+New partial files end in `-partial.bkup`; GnuPG's verbose output also identifies their embedded name as `backup-partial.json`. After **successful** decryption, show the authenticated status with Python 3's standard library, without installing this app:
+
+```sh
+python3 - <<'PY'
+import json
+from pathlib import Path
+data = json.loads(Path("backup.json").read_text(encoding="utf-8"))
+print("Backup status:", str(data.get("status", "legacy / unknown")).upper())
+print(data.get("recovery_notice", "Check sections and warnings before recovery."))
+for section, state in data.get("sections", {}).items():
+    print(f"  {section}: {state}")
+for warning in data.get("warnings", []):
+    print("Warning:", warning)
+PY
+```
+
+If Python 3 is unavailable, open `backup.json` in a text editor: `status` and `recovery_notice` are near the beginning, followed by section status. The file name is a hint; the successfully decrypted JSON is authoritative, including for older or renamed backups.
 
 ### Windows PowerShell
 
@@ -51,17 +69,27 @@ if ($bytes.Length -le 8 -or [System.Text.Encoding]::ASCII.GetString($bytes, 0, 8
     throw "This is not an encrypted Discord Backup Linux file."
 }
 [System.IO.File]::WriteAllBytes("backup.gpg", $bytes[8..($bytes.Length - 1)])
-gpg --output "backup.json" --decrypt "backup.gpg"
+gpg --verbose --output "backup.json" --decrypt "backup.gpg"
 if ($LASTEXITCODE -ne 0) {
     throw "Decryption failed. Do not use any partial backup.json output."
 }
+$data = Get-Content -Raw "backup.json" | ConvertFrom-Json
+Write-Host ("Backup status: " + $data.status)
+if ($data.status -eq "partial" -or $data.interrupted -eq $true) {
+    Write-Warning "PARTIAL BACKUP: saved data is usable, but collection did not finish."
+}
+if ($data.recovery_notice) { Write-Host $data.recovery_notice }
+$data.sections | Format-List
+$data.warnings | ForEach-Object { Write-Warning $_ }
 ```
 
 GnuPG asks for the passphrase. `backup.gpg` remains encrypted. `backup.json` is plaintext, so protect it. The Windows instructions unlock the file; they do not install a Windows version of this Linux app.
 
 ## After unlocking
 
-`backup.json` contains the saved invites, relationship IDs, contacts, profile data, settings and warnings. Avatar/banner contents are base64 fields. A partial backup unlocks the same way and contains only data collected before interruption. Decryption does not recreate missing sections or make expired invitations work.
+`backup.json` contains the saved invites, relationship IDs, contacts, profile data, settings and warnings. Avatar/banner contents are base64 fields. A partial backup unlocks the same way and contains only collected data. Its `status: "partial"`, readable `recovery_notice`, `sections` and warnings identify missing work even on a different computer without this app. Saved contacts, memberships, profile files and available invites remain usable. Decryption does not recreate missing sections, resume collection or make expired invitations work.
+
+An intentionally partial backup is still a complete authenticated encrypted file. That is different from corrupted/truncated ciphertext or plaintext left by a failed decryption: discard failed-decryption output. A forced kill or disk failure can preserve only the last successful checkpoint. Older partial backups may lack the filename marker; check their decrypted status.
 
 The original `.bkup` stays encrypted and unchanged. Reading/exporting is offline; applying a saved folder/GIF layout is a separate operation that requires live account authentication and explicit apply.
 

@@ -134,7 +134,7 @@ class EstimateTests(TemporaryTest):
                 reporter.publish('example', remaining=3)
                 hints['wait_seconds'] = 20
                 self.assertTrue(tick.wait(2))
-                self.assertTrue(any('20s remaining' in line and 'whole-account total' in line for line in output))
+                self.assertTrue(any('23s remaining' in line and 'whole-account total' in line for line in output))
                 raise ValueError('synthetic stop')
         self.assertFalse(reporter._thread.is_alive())
 

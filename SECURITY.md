@@ -1,6 +1,6 @@
 # Security reports
 
-The current release series is 1.6.x. Older snapshots have no separate maintenance branch.
+The current release series is 1.7.x. Older snapshots have no separate maintenance branch.
 
 Report vulnerabilities through this repository's GitHub **Security → Report a vulnerability** option when available. If private reporting is unavailable, open an issue asking for a private reporting channel without exploit details or sensitive data. Do not attach real tokens, passphrases, backups, private credential files, account exports, or unredacted HTTP traffic to a public issue.
 

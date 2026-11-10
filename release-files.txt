@@ -21,11 +21,13 @@ discord_backup/schedule.py
 discord_backup/selection.py
 discord_backup/storage.py
 discord_backup/terminal.py
+discord_backup/timing.py
 discord_backup/tokens.py
 docs/ARCHITECTURE.md
 docs/RECOVERY_HUB.md
 docs/RELEASING.md
 docs/REVIEW.md
+docs/USAGE.md
 main.py
 packaging/arch/PKGBUILD
 packaging/arch/discord-backup
@@ -34,6 +36,7 @@ release-files.txt
 requirements.txt
 run.sh
 tests/test_backup.py
+tests/test_backup_reliability.py
 tests/test_encryption_tokens.py
 tests/test_interactive_prompts.py
 tests/test_parallel_backup.py

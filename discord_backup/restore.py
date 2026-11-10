@@ -10,7 +10,7 @@ import secrets
 
 from .api import DiscordError
 from .backup import user_label
-from .storage import atomic_write, backup_directory, snowflake, validate_folders, write_backup
+from .storage import atomic_write, backup_directory, is_partial, recovery_notice, snowflake, validate_folders, write_backup
 
 
 class AccountMismatch(ValueError):
@@ -124,6 +124,9 @@ table{border-collapse:collapse;width:100%;display:block;overflow:auto}td,th{text
 pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:20px;background:#202430;border-radius:12px}.avatar{max-width:128px;border-radius:20px}.banner{max-width:100%}.note{color:#b3bbd0}header{border-bottom:1px solid #343849;padding-bottom:24px}
 </style><header><p class="note">DISCORD BACKUP · LOCAL RECOVERY</p>"""
     page += f"<h1>{e(data['name'])}</h1><p>Account {e(data['id'])} · {e(data.get('created_at', 'Legacy backup'))} · {e(data.get('status', 'Legacy status unknown'))}</p>"
+    if is_partial(data):
+        page += f"<aside><h2>PARTIAL BACKUP</h2><p>{e(recovery_notice(data))}</p>"
+        page += table(("Section", "Status"), [[e(key), e(state)] for key, state in data.get("sections", {}).items()]) + "</aside>"
     page += '<nav><a href="#profile">Profile</a><a href="#servers">Servers</a><a href="#groups">Groups</a><a href="#dms">DM contacts</a><a href="#folders">Folders</a></nav></header>'
     page += "<p class=note>Rejoin servers with their invites and add friends manually. This page does not contact Discord until you follow a link. Expired invites and lost access cannot be recovered by this tool.</p>"
     page += "".join(sections) + "</html>\n"
