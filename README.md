@@ -2,7 +2,7 @@
 
 # Discord Backup Linux
 
-Encrypted Discord account backups and guided recovery for Linux.
+Encrypted Discord account backups and guided recovery on Linux. Inspired by [ItsChasa's Discord-Backup](https://github.com/itschasa/Discord-Backup).
 
 [![Offline checks](https://github.com/EasyAntiCheatSoftware/discord-backup-linux/actions/workflows/check.yml/badge.svg)](https://github.com/EasyAntiCheatSoftware/discord-backup-linux/actions/workflows/check.yml)
 ![Linux](https://img.shields.io/badge/Platform-Linux-1793D1?logo=linux&logoColor=white)
@@ -14,8 +14,6 @@ Encrypted Discord account backups and guided recovery for Linux.
 ![Terminal demo showing the whole-account ETA and backup summary](builds/v1.8.0/screenshots/demo.gif)
 
 </div>
-
-Inspired by [ItsChasa's Discord-Backup](https://github.com/itschasa/Discord-Backup).
 
 ## Quick start
 
