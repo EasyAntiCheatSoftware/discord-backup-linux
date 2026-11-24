@@ -1,6 +1,6 @@
 # Guided recovery and the private bot hub
 
-Choose **2 — Recover / restore a backup** in the main menu, or run `./run.sh recover`. The picker checks the current directory, its `backups` subfolder, the last location used in this session, and the default XDG backup directory. It lists recent `.bkup` files without decrypting them. Press Enter for the newest file, select a number, or enter a custom folder/file path. A folder opens another list. `D` returns to the default search and `0` cancels.
+Choose **2 · Recover a backup** in the main menu, or run `./run.sh recover`. The picker checks the current directory, its `backups` subfolder, the last location used in this session, and the default XDG backup directory. It lists recent `.bkup` files without decrypting them. Press Enter for the newest file, select a number, or enter a custom folder/file path. A folder opens another list. `D` returns to the default search and `0` cancels.
 
 You can also start in a particular folder or open a file directly:
 
@@ -11,7 +11,7 @@ You can also start in a particular folder or open a file directly:
 
 After unlocking once with the backup passphrase, the recovery menu offers:
 
-1. **Local recovery page + profile files:** offline HTML, invite/profile links, avatar/banner and bio extraction. Choose a new private output folder and optionally open its page.
+1. **Export recovery page:** offline HTML, invite/profile links, avatar/banner and bio extraction. Choose a new private output folder and optionally open its page.
 2. **Private Discord recovery hub:** your bot creates a private category and organized channels containing saved server invitations grouped by folder, group links, relationships, DM contacts and warnings.
 3. **Server folders:** preview for the authenticated target account, then explicitly apply after an encrypted rollback is saved.
 4. **Favourite GIF settings:** preview and explicitly replace the opaque frecency block after encrypted rollback. Other preferences inside that block can change too.

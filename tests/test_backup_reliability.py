@@ -218,7 +218,7 @@ class TimingTests(TemporaryTest):
         self.assertEqual(len(http.calls), 9)
         self.assertEqual(data["performance"]["eta_history_samples"], 1)
         self.assertGreater(data["performance"]["estimated_total_seconds"], 15)
-        self.assertTrue(any("1 recent matching runs" in message for message in logs))
+        self.assertFalse(any("rough first run" in message for message in logs))
 
     def test_live_throttled_throughput_revises_remaining_time_upward(self):
         clock = FakeClock()
@@ -245,11 +245,11 @@ class TimingTests(TemporaryTest):
     def test_new_cooldown_adds_to_pending_work_without_double_counting_existing_wait(self):
         clock, hints, logs = FakeClock(), {"wait_seconds": 0}, []
         reporter = EstimateReporter(logs.append, clock=clock, hints=lambda: dict(hints))
-        reporter.publish("demo", remaining=30)
+        reporter.publish(remaining=30)
         clock.now = 5; hints["wait_seconds"] = 20
         reporter._emit()
         self.assertIn("45s remaining", logs[-1])
-        reporter.publish("demo", remaining=45)
+        reporter.publish(remaining=45)
         clock.now = 10; hints["wait_seconds"] = 15
         reporter._emit()
         self.assertIn("40s remaining", logs[-1])

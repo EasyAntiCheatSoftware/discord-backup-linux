@@ -26,11 +26,11 @@ class PromptTests(unittest.TestCase):
     def test_backup_menu_waits_for_valid_menu_and_invite_answers(self):
         for answer, no_invites in (("n", True), ("yes", False), ("", False)):
             with self.subTest(answer=answer):
-                answers = iter(["", "abc", "11", "1", "maybe", "nope", answer, "0"])
+                answers = iter(["", "abc", "9", "1", "maybe", "nope", answer, "0"])
                 executed = []
                 def respond(prompt):
                     value = next(answers)
-                    if "Create server/group" in prompt:
+                    if "Create invites" in prompt:
                         self.assertEqual(executed, [])
                     return value
                 with patch.object(cli, "input", side_effect=respond), \
@@ -43,7 +43,7 @@ class PromptTests(unittest.TestCase):
     def test_account_selection_retries_without_scanning_or_entering_a_token_early(self):
         args = cli.parser().parse_args(["backup"])
         candidate = Candidate("synthetic-account-token", ["Discord"], {"id": "1", "username": "demo"})
-        answers = iter(["wrong", "3", "1", "maybe", "n", "²", "9" * 5000, "2", "1"])
+        answers = iter(["wrong", "4", "1", "²", "9" * 5000, "2", "1"])
         scans = []
         with patch("sys.stdin.isatty", return_value=True), \
              patch.object(cli, "input", side_effect=lambda prompt: next(answers)), \

@@ -62,7 +62,8 @@ def demo(mode):
     with tempfile.TemporaryDirectory(prefix='discord-screenshot-data-') as directory:
         os.chdir(directory)
         with patch('discord_backup.cli.client_for', return_value=DiscordClient(TOKEN, transport=transport)), \
-             patch('discord_backup.cli.Collector', side_effect=lambda *args, **options: Collector(*args, **{**options, 'use_history': False})), \
+             patch('discord_backup.cli.Collector', side_effect=lambda *args, **options: Collector(
+                 *args, **options, use_history=False, progress_interval=0.25)), \
              patch('discord_backup.cli.passphrase_for', return_value=secrets.token_urlsafe(32)), \
              patch('socket.socket.connect', side_effect=RuntimeError('Live network disabled in screenshot capture')):
             print('$ ./run.sh backup', flush=True)
@@ -102,11 +103,12 @@ def capture(mode, *, record=False):
                     break
                 output.extend(chunk)
                 if record:
-                    end = output.rfind(b'\n') + 1
-                    if end:
-                        snapshot = output[:end].decode('utf-8')
-                        if not events or events[-1][1] != snapshot:
-                            events.append((time.monotonic() - started, snapshot))
+                    try:
+                        snapshot = output.decode('utf-8')
+                    except UnicodeDecodeError:
+                        continue  # A read may end partway through a character.
+                    if not events or events[-1][1] != snapshot:
+                        events.append((time.monotonic() - started, snapshot))
                 if mode == 'menu' and b'Choice:' in output and not answered:
                     os.write(master, b'0\n')
                     answered = True
@@ -136,7 +138,10 @@ def render(text, path=None, *, rows):
     palette = {91: '#ff6767', 92: '#9bde78', 93: '#f4d271', 94: '#81a2ff', 95: '#c79bea', 96: '#77d9e8'}
     lines, line, column = [], [], 0
     color, bold, dim = foreground, False, False
-    for token in re.split(r'(\x1b\[[0-9;]*m)', text):
+    for token in re.split(r'(\x1b\[[0-9;]*(?:m|K))', text):
+        if token == '\x1b[2K':
+            line = []
+            continue
         if token.startswith('\x1b['):
             for code in [int(x or '0') for x in token[2:-1].split(';')]:
                 if code == 0:
@@ -206,7 +211,7 @@ def animate(events, path):
         events = [events[i] for i in indices]
     frames, durations = [], []
     for index, (stamp, text) in enumerate(events):
-        frame = render(text, rows=28)
+        frame = render(text, rows=10)
         size = (1100, round(frame.height * 1100 / frame.width))
         frame = frame.resize(size, Image.Resampling.LANCZOS)
         frames.append(frame.quantize(colors=128))
@@ -221,11 +226,11 @@ def animate(events, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--capture', choices=('menu', 'backup', 'warnings'), help=argparse.SUPPRESS)
-    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.7.0/screenshots')
+    parser.add_argument('--output', type=Path, default=ROOT / 'builds/v1.8.0/screenshots')
     args = parser.parse_args()
     if args.capture:
         return demo(args.capture)
-    for mode, rows in (('menu', 24), ('backup', 28), ('warnings', 30)):
+    for mode, rows in (('menu', 9), ('backup', 10), ('warnings', 16)):
         render(capture(mode), args.output / f'{mode}.png', rows=rows)
     _, events = capture('backup', record=True)
     animate(events, args.output / 'demo.gif')

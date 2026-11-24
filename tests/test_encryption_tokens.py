@@ -177,7 +177,7 @@ class TokenTests(TemporaryTest):
         args = parser().parse_args(["backup"])
         candidate = Candidate(token(), ["Discord"], {"id": "123456789012345678", "username": "example"})
         output = io.StringIO()
-        with patch("sys.stdin.isatty", return_value=True), patch("discord_backup.cli.scan_accounts", return_value=[candidate]), patch("builtins.input", side_effect=["1", "y", "1"]), redirect_stdout(output):
+        with patch("sys.stdin.isatty", return_value=True), patch("discord_backup.cli.scan_accounts", return_value=[candidate]), patch("builtins.input", side_effect=["3", "1"]), redirect_stdout(output):
             selected = select_token(args)
         self.assertEqual(selected, token())
         self.assertTrue(args.scan_browsers)

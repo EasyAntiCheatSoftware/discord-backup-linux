@@ -20,7 +20,7 @@ from .hub import BOT_PERMISSIONS, DiscordBotClient, bot_identity, hub_plan, prep
 from .restore import AccountMismatch, export_recovery, restore_folders, restore_gifs, summary
 from .schedule import install_schedule, passphrase_path, token_path
 from .selection import remember_backup, select_backup
-from .storage import atomic_write, backup_directory, is_encrypted, is_partial, read_backup, read_passphrase, read_private_secret, read_token, recovery_notice, snowflake, validate_token, write_backup
+from .storage import atomic_write, backup_directory, is_encrypted, is_partial, read_backup, read_passphrase, read_private_secret, read_token, snowflake, validate_token, write_backup
 from .tokens import account_label, scan_tokens, validate_candidates
 from .terminal import console
 
@@ -44,7 +44,7 @@ def yes_no(question, *, default):
     suffix = "[Y/n]" if default else "[y/N]"
     answer = choose(f"{question} {suffix}: ", ("y", "yes", "n", "no"),
                     default="y" if default else "n",
-                    error="Invalid answer. Enter y/yes or n/no, or press Enter for the shown default.")
+                    error="Invalid answer. Enter y or n.")
     return answer in ("y", "yes")
 
 
@@ -70,7 +70,7 @@ def hidden_token():
 
 def hidden_passphrase(*, creating=False):
     if creating:
-        print("Choose a backup passphrase of at least 12 characters. Keep it: it is required to unlock your backups.")
+        print("Keep your backup passphrase (12+ characters) to unlock the file later.")
     password = validate_passphrase(hidden_input("Backup passphrase (hidden): "), creating=creating)
     if creating and hidden_input("Confirm backup passphrase: ") != password:
         raise ValueError("Backup passphrases did not match")
@@ -88,16 +88,14 @@ def load_backup(args):
     data = read_backup(args.backup, passphrase=password)
     if is_partial(data):
         stream = sys.stderr if args.command == "inspect" else sys.stdout
-        print("\nPARTIAL BACKUP", style="yellow", file=stream)
-        print(recovery_notice(data), file=stream)
-        print("Section status: " + ", ".join(f"{key}: {state}" for key, state in data.get("sections", {}).items()), file=stream)
+        print("PARTIAL BACKUP · Saved data is usable. See recovery warnings for missing sections.",
+              style="yellow", file=stream)
     return data, password
 
 
 def scan_accounts(args):
-    print("Scanning your local Discord caches (tokens stay hidden)…")
+    print("Scanning for accounts…")
     result = scan_tokens(browsers=getattr(args, "scan_browsers", False), extra_paths=getattr(args, "scan_path", []))
-    print(f"Read {result.files_read} cache files; found {len(result.candidates)} candidate tokens")
     for message in result.warnings:
         print(f"Warning: {message}")
     if not result.candidates:
@@ -114,18 +112,23 @@ def select_token(args):
     if not sys.stdin.isatty():
         raise ValueError("Account selection needs a terminal; use --token-file for unattended runs")
     if not getattr(args, "scan", False):
-        choice = choose("1  Scan stored Discord accounts\n2  Enter a token manually\nChoice [1]: ", ("1", "2"), default="1")
+        scan_prompt = "1  Scan Discord apps\n2  Enter token"
+        choices = ("1", "2")
+        if not getattr(args, "scan_browsers", False):
+            scan_prompt += "\n3  Scan Discord apps and browsers"
+            choices += ("3",)
+        choice = choose(scan_prompt + "\nChoice [1]: ", choices, default="1")
         if choice == "2":
             return hidden_token()
-        if not getattr(args, "scan_browsers", False):
-            args.scan_browsers = yes_no("Also scan Chrome/Chromium/Brave/Edge browser profiles?", default=False)
+        if choice == "3":
+            args.scan_browsers = True
     try:
         accounts = scan_accounts(args)
     except DiscordError as error:
         print(str(error))
         accounts = []
     if not accounts:
-        print("No usable cached accounts found. You can enter your token manually.")
+        print("No usable cached accounts. Enter a token or press Ctrl+C to cancel.")
         return hidden_token()
     for index, candidate in enumerate(accounts, 1):
         print(f"{index}  {account_label(candidate)}")
@@ -379,13 +382,12 @@ def choose_hub_server(bot):
 def hub_flow(args, data, *, confirm=False):
     include = getattr(args, "include", ["servers", "groups", "relationships", "contacts", "warnings"])
     hub_plan(data, include=include)  # Validate size and fields before asking for credentials.
-    print("Recovery hub: automatically organize saved links and contacts in private Discord channels.")
-    print("Joining servers, adding friends and changing your profile remain manual, as in the original project.")
     guide = Path(__file__).resolve().parents[1] / "docs/RECOVERY_HUB.md"
     if not guide.is_file():
         guide = Path("/usr/share/doc/discord-backup-linux/RECOVERY_HUB.md")
-    print("Use your own bot in an existing trusted server. Setup guide:")
-    print(guide if guide.is_file() else "https://github.com/EasyAntiCheatSoftware/discord-backup-linux/blob/main/docs/RECOVERY_HUB.md")
+    print("Use your own bot in a trusted server.")
+    guide_link = guide if guide.is_file() else "https://github.com/EasyAntiCheatSoftware/discord-backup-linux/blob/main/docs/RECOVERY_HUB.md"
+    print(f"Bot setup: {guide_link}")
     token_file = getattr(args, "bot_token_file", None)
     token = read_private_secret(token_file, label="Bot token") if token_file else hidden_input("Your bot token (hidden; not saved): ")
     with DiscordBotClient(validate_bot_token(token), log=console.log) as bot:
@@ -415,14 +417,10 @@ def hub_flow(args, data, *, confirm=False):
 def recovery_menu(args):
     data, password = load_backup(args)
     source = args.backup
-    print(f"\nLoaded {source.name}")
-    print(f"Account: {data['name']} • {len(data.get('guilds', []))} servers • {len(data.get('friends', []))} friends • {len(data.get('group-chats', []))} groups")
+    print(f"\n{data['name']} · {source.name}")
     while True:
-        print("\n  1  Local recovery page + profile files (offline)")
-        print("  2  Private Discord recovery hub (your bot)")
-        print("  3  Restore server folders (preview first)")
-        print("  4  Restore favourite GIF settings (preview first)")
-        print("  B  Choose another backup\n  0  Back")
+        print("\n  1  Export recovery page\n  2  Publish with a bot\n  3  Restore folders\n"
+              "  4  Restore GIF settings\n  B  Switch backup\n  0  Back")
         choice = choose("Recovery method [1]: ", ("1", "2", "3", "4", "b", "0"), default="1")
         try:
             if choice == "0":
@@ -437,7 +435,7 @@ def recovery_menu(args):
                 entered = input(f"New recovery folder [{default}]: ").strip()
                 page, notices = export_recovery(data, Path(entered).expanduser() if entered else default)
                 print(f"Recovery page: {page.resolve()}")
-                print("These files contain decrypted personal data. Keep the recovery folder private.")
+                print("Keep this decrypted folder private.")
                 for notice in notices:
                     print(f"Warning: {notice}")
                 if yes_no("Open the local recovery page in your browser?", default=False):
@@ -451,40 +449,23 @@ def recovery_menu(args):
             elif choice in ("3", "4"):
                 command = "restore-folders" if choice == "3" else "restore-gifs"
                 settings_flow(parser().parse_args([command, str(source)]), data, password)
-            else:
-                print("Choose one of the listed recovery methods.")
         except (OSError, ValueError, DiscordError) as error:
             print(f"Error: {error}", file=sys.stderr)
 
 
 def menu():
-    console.banner(__version__, backup_directory())
+    console.banner(__version__)
+    commands = {"1": "backup", "2": "recover", "0": None}
     while True:
         console.menu()
-        choice = choose("Choice: ", tuple(str(number) for number in range(10)))
+        choice = choose("Choice: ", tuple(commands))
         if choice == "0":
             return 0
-        command = []
-        if choice == "1":
-            command = ["backup"]
-            if not yes_no("Create server/group invites where permitted?", default=True):
-                command.append("--no-invites")
-        elif choice in ("2", "3", "4"):
-            command = [{"2": "recover", "3": "restore-folders", "4": "restore-gifs"}[choice]]
-        elif choice in ("5", "6", "7", "8", "9"):
-            command = [{"5": "list", "6": "save-token", "7": "schedule", "8": "save-passphrase", "9": "speed-test"}[choice]]
-        else:
-            print("Choose a number from the menu")
-            continue
+        command = [commands[choice]]
+        if choice == "1" and not yes_no("Create invites where allowed?", default=True):
+            command.append("--no-invites")
         try:
-            if choice in ("3", "4"):
-                args = parser().parse_args(command)
-                data, password = load_backup(args)
-                settings_flow(args, data, password)
-                continue
-            result = execute(parser().parse_args(command))
-            if result == 2:
-                print("Completed with warnings; review the details above")
+            execute(parser().parse_args(command))
         except (OSError, ValueError, DiscordError) as error:
             print(f"Error: {error}", file=sys.stderr)
 

@@ -57,8 +57,7 @@ class EstimateTests(TemporaryTest):
         _, data = Collector(http.client(), self.directory, passphrase=PASSWORD, log=logs.append).run()
         estimates = [message for message in logs if message.startswith('Estimated full-account backup time for example:')]
         self.assertTrue(estimates)
-        self.assertLess(next(i for i, line in enumerate(logs) if line.startswith('ETA for')),
-                        logs.index('Saving server-invites…'))
+        self.assertTrue(logs[0].startswith('ETA: estimating'))
         self.assertNotIn(TOKEN, '\n'.join(logs))
         self.assertEqual(data['status'], 'complete')
         # The estimator adds no calls to the nine-request fixture workload.
@@ -87,16 +86,13 @@ class EstimateTests(TemporaryTest):
             if message.startswith('Estimated full-account backup time'):
                 self.assertFalse(list(self.directory.glob('*.bkup')))
                 self.assertEqual(http.writes(), [])
-            if message.startswith('ETA for'):
+            if message.startswith('ETA:'):
                 calls_at_eta.append(len(http.calls))
 
         Collector(http.client(), self.directory, passphrase=PASSWORD, log=log).run()
         self.assertEqual(calls_at_eta[0], 0)
-        headline = next(i for i, line in enumerate(logs) if line.startswith('Estimated full-account backup time'))
-        self.assertLess(headline, next(i for i, line in enumerate(logs) if line.startswith('Starting encrypted backup')))
-        progress = [line for line in logs if line.startswith(('Servers [', 'Groups ['))]
-        self.assertTrue(progress)
-        self.assertTrue(all('ETA' not in line for line in progress))
+        self.assertEqual(sum(line.startswith('Estimated full-account backup time') for line in logs), 1)
+        self.assertFalse(any(line.startswith(('Servers [', 'Groups [')) for line in logs))
 
     def test_eta_keeps_printing_while_membership_request_is_blocked(self):
         blocked, heartbeat = threading.Event(), threading.Event()
@@ -131,10 +127,10 @@ class EstimateTests(TemporaryTest):
         reporter = EstimateReporter(log, clock=clock, interval=0.02, hints=lambda: dict(hints))
         with self.assertRaisesRegex(ValueError, 'synthetic stop'):
             with reporter:
-                reporter.publish('example', remaining=3)
+                reporter.publish(remaining=3)
                 hints['wait_seconds'] = 20
                 self.assertTrue(tick.wait(2))
-                self.assertTrue(any('23s remaining' in line and 'whole-account total' in line for line in output))
+                self.assertTrue(any('23s remaining' in line for line in output))
                 raise ValueError('synthetic stop')
         self.assertFalse(reporter._thread.is_alive())
 
@@ -142,15 +138,26 @@ class EstimateTests(TemporaryTest):
         clock, output = FakeClock(), []
         reporter = EstimateReporter(output.append, clock=clock)
         with reporter:
-            reporter.publish('example', remaining=1)
+            reporter.publish(remaining=1)
             clock.now += 10
             with reporter._lock:
                 reporter._emit()
-        self.assertIn('taking longer than estimated', output[-1])
+        self.assertIn('recalculating', output[-1])
         self.assertNotIn('0s remaining', output[-1])
 
 
 class WarningTests(TemporaryTest):
+    def test_compact_summary_points_to_full_warnings_without_mutating_them(self):
+        data = {"status": "partial", "account": "example", "guilds": 1, "friends": 0,
+                "group-chats": 0, "dm-history": 0, "warnings": [f"Warning detail {n}" for n in range(5)]}
+        output = io.StringIO()
+        with redirect_stdout(output):
+            Console(mode='never').backup_summary(data)
+        self.assertIn('Warnings (5)', output.getvalue())
+        self.assertIn('2 more in the recovery page or inspect output', output.getvalue())
+        self.assertNotIn('Warning detail 4', output.getvalue())
+        self.assertEqual(len(data["warnings"]), 5)
+
     def test_final_summary_prints_specific_missing_section_and_recovery_action(self):
         http = FakeHTTP({('GET', '/users/@me/settings'): (404, {}, {}),
                          ('POST', '/channels/30/invites'): (403, {}, {})})

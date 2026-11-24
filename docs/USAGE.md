@@ -2,6 +2,61 @@
 
 See the [README](../README.md) for installation and everyday recovery.
 
+## Back up
+
+Choose **1 · Back up account**, scan your local Discord caches or enter a token in a hidden prompt, then choose and confirm a passphrase of at least 12 characters. Browser-profile scanning requires opt-in. Interactive use does not save credentials.
+
+Keep the passphrase separately: there is no reset or recovery key. Backups normally go to `~/.local/share/discord-backup-linux/backups`; use `--output` for another folder.
+
+| Saved data | Recovery |
+| --- | --- |
+| Server/group membership and optional invitations | Follow saved invitations manually |
+| Friends, blocked users, requests and open-DM contacts | Open profiles and manage relationships manually |
+| Profile images and bio | Export files, then apply them in Discord |
+| Server folders | Preview/apply for servers you have rejoined |
+| Favourite GIF/frecency settings | Optional replacement of the entire opaque settings block |
+
+Message contents and server contents are not collected. The original project's plaintext JSON backups can also be opened.
+
+### Progress and interruptions
+
+One **whole-account estimate** appears after read-only preparation and before the main backup. The overall ETA adjusts to observed invite throughput, encryption and Discord waits. Future estimates use up to five recent private timing samples for that account and the same worker/invite options. The cache contains numeric timings, no tokens or backup contents; see [storage details](#timing-history). A first run cannot know future Discord throttles and is labeled accordingly.
+
+Interactive terminals update the ETA on a single line. The final summary shows elapsed time, the initial estimate, total Discord waits and the number of rate-limit responses. It shows up to three warnings and identifies affected sections. The recovery page and `inspect` show every saved warning, and `inspect` includes per-stage timings and grouped-notice counts.
+
+An unfinished file keeps **`-partial.bkup`** in its name. Completed collection removes that suffix only after the final encrypted save. Partial backups remain usable: the app, recovery page and decrypted JSON identify missing/pending sections. Ordinary interruption forces a save and preserves successful in-flight invite results. A forced kill, power loss or disk/encryption failure can preserve only the last successful checkpoint. Missing data needs a new backup; files cannot be resumed.
+
+## Recover — here or on another machine
+
+Choose **2 · Recover a backup**. The picker checks current/default folders and the last folder used in this session; you can also enter a custom folder or file. Unlock once, then choose a local recovery page, private bot hub or settings restore.
+
+- **With the app:** the local recovery page contains saved links, profile files, section status and warnings. Its output is decrypted personal data; keep the folder private.
+- **Without the app:** use GnuPG 2.4+ and the same passphrase. [The unlock guide](../UNLOCK_BACKUP.md) includes Linux/macOS and Windows commands that show partial status after decryption. No Discord token or original computer is needed.
+- **Bot recovery:** your own bot organizes links and contacts in private channels in an existing trusted server. Review the destination before typing `PUBLISH`. Server owners/admins can read uploaded data. [Setup and limits](RECOVERY_HUB.md).
+
+Server joins, friend requests and profile changes remain manual, as in the original project. The bot is not a universal CAPTCHA-free account restore.
+
+Settings restores preview first and save an encrypted rollback before writing. Folder restore keeps current-only memberships; GIF restore replaces the whole frecency block, including other preferences stored there. A different account requires explicit confirmation. See [restore details](#settings-restores).
+
+## Commands
+
+The main menu focuses on backing up and recovering. Use `--help` to see all commands, including listing, scheduling, credential setup and speed tests.
+
+Use `discord-backup` instead of `./run.sh` after installing the Arch package.
+
+```sh
+./run.sh backup --no-invites       # Read-only backup; default backup mode also creates invites
+./run.sh backup --manual          # Hidden manual token entry
+./run.sh backup --output "$HOME/Backups/Discord"
+./run.sh recover                  # Recent-file picker and recovery menu
+./run.sh recover /path/to/backups # Browse a custom folder
+./run.sh inspect /path/to/file.bkup
+./run.sh export /path/to/file.bkup --output "$HOME/discord-recovery"
+./run.sh --help
+```
+
+Invalid choices repeat the prompt. Yes/no accepts `y`/`yes` or `n`/`no`; Enter uses the displayed default. Restore confirmations require the exact uppercase word, or Enter to cancel.
+
 ## Settings restores
 
 `inspect` and `export` work offline. They ask for the backup passphrase, never a Discord token. Export requires a new output directory and creates a local HTML page, bio text, and recognized image files. It contains **decrypted personal data**. The page has no JavaScript or remotely loaded images; links open Discord when followed. Invalid legacy image data produces a warning.
@@ -16,7 +71,7 @@ A different account requires `--allow-different-account`. To reverse a restore, 
 
 Scanning reads current-user native/Flatpak Discord-family LevelDB caches, including supported Vesktop, ArmCord, and Legcord locations. It skips symlinks and files owned by another user, bounds individual reads and total input to 256 MiB, and validates at most 50 unique candidate tokens. Duplicate accounts are combined. Candidate validation uses `/users/@me`; the UI prints account/client labels, never token values.
 
-Chrome, Chromium, Brave, and Edge caches require `--scan-browsers` or the menu's opt-in prompt. Additional LevelDB directories can be selected with repeatable `--scan-path` options. The scanner recognizes ordinary and legacy MFA tokens, but cannot read every compressed or OS-keyring-encrypted record. It does not unlock keyrings. Use manual entry when scanning finds no valid account.
+Chrome, Chromium, Brave, and Edge caches require `--scan-browsers` or **Scan Discord apps and browsers** in the account prompt. Additional LevelDB directories can be selected with repeatable `--scan-path` options. The scanner recognizes ordinary and legacy MFA tokens, but cannot read every compressed or OS-keyring-encrypted record. It does not unlock keyrings. Use manual entry when scanning finds no valid account.
 
 ### Colors
 
@@ -58,7 +113,7 @@ The timer runs after user-manager startup and daily with jitter, while the user 
 
 ## Rate limits, errors, and speed
 
-Repeated rate-limit notices share a 30-second reporting window across all workers, including normal budget exhaustion. This changes output only: all deadlines, retry bounds and serial-invite fallback stay in place. The final summary shows HTTP 429 counts, grouped-notice counts and total Discord wait time. The five-second account ETA remains visible during waits; final authentication, CAPTCHA, persistent-limit and missing-data errors are not suppressed.
+Repeated rate-limit notices share a 30-second reporting window across all workers, including normal budget exhaustion. This changes output only: all deadlines, retry bounds and serial-invite fallback stay in place. The final summary shows HTTP 429 counts and total Discord wait time. The grouped-notice count is available through `inspect`. The five-second account ETA remains visible during waits; final authentication, CAPTCHA, persistent-limit and missing-data errors are not suppressed.
 
 Each worker reuses its own HTTPS connection pool. Three workers process independent invitation tasks by default; `--workers` accepts 1–4. A shared coordinator reserves known request budgets, separates major resources, handles global limits and fractional reset deadlines, and follows [Discord's rate-limit headers](https://docs.discord.com/developers/topics/rate-limits). A local guard caps request starts at 25 per second; it is not a claim about the rate Discord allows.
 

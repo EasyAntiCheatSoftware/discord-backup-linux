@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.0 · 2026-11-24
+
+- Keep the main menu to Back up, Recover and Exit. All previous commands remain available. Folder and GIF restores share the recovery menu, and browser scanning is an explicit account choice.
+- Use one transient ETA line on interactive terminals. Show a compact backup summary and up to three warnings, with the full warning list and timings available through recovery and inspect.
+- List each backup on one row and repeat only the prompt on invalid input.
+- Shorten the GitHub front page, move reference material into the usage guide and refresh the synthetic demo.
+
 ## 1.7.0 — 2026-11-10
 
 - Group repeated rate-limit and budget-wait notices across workers into at most one update every 30 seconds. Preserve all request deadlines, backoff/retry bounds and serial-invite fallback. Show throttle and grouped-notice counts in the final summary.

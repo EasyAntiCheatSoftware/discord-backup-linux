@@ -59,37 +59,36 @@ class EstimateReporter:
         self._stop.set()
         self._thread.join()
 
-    def publish(self, account, *, remaining=None, note="", emit=True):
+    def publish(self, *, remaining=None, note="", emit=True):
         with self._lock:
-            self._snapshot = (account, remaining, note, self.clock(), max(0, self.hints().get("wait_seconds", 0)))
+            self._snapshot = (remaining, note, self.clock(), max(0, self.hints().get("wait_seconds", 0)))
             if emit:
                 self._emit()
 
     def _emit(self):
         if self._snapshot is None:
             return
-        account, remaining, note, sampled, sampled_wait = self._snapshot
+        remaining, note, sampled, sampled_wait = self._snapshot
         now = self.clock()
         elapsed = max(0, now - self.started)
         elapsed_text = duration(int(elapsed)) if elapsed >= 1 else "0s"
         wait = max(0, self.hints().get("wait_seconds", 0))
         if remaining is None:
-            message = f"ETA for {account}: calculating — {note}"
+            message = "ETA: estimating"
         else:
             since_sample = max(0, now - sampled)
             # A new/extended cooldown delays pending work; it is not just a floor.
             extra_wait = max(0, wait - max(0, sampled_wait - since_sample))
             remaining = max(0, remaining - since_sample) + extra_wait
             if remaining <= 0:
-                message = f"ETA for {account}: recalculating — current work is taking longer than estimated"
+                message = "ETA: recalculating"
             else:
-                scope = "backup-attempt total" if 'available data only' in note else "whole-account total"
-                message = f"ETA for {account}: about {duration(remaining)} remaining / {duration(elapsed + remaining)} {scope}"
-                if note:
-                    message += f" ({note})"
-        message += f" | elapsed {elapsed_text}"
+                message = f"ETA: ~{duration(remaining)} remaining"
         if wait:
             message += f" | Discord wait {duration(wait)}"
+        message += f" | {elapsed_text} elapsed"
+        if note:
+            message += f" | {note}"
         self.log(message)
 
     def _heartbeat(self):

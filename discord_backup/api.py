@@ -274,12 +274,12 @@ class RateLimiter:
             self._grouped_since_notice += 1
             self._grouped_total += 1
             return
-        message = f"Waiting {max(0, self._notice_until - now):.1f}s for Discord's rate limits; automatic retries continue"
+        message = f"Waiting {max(0, self._notice_until - now):.1f}s for Discord"
         if self.serial_templates:
-            message += "; invite requests run one at a time"
+            message += " (invites one at a time)"
         if self._grouped_since_notice:
             message += f" ({self._grouped_since_notice} repeated notices grouped)"
-        self.log(message + ". Rate-limit updates appear at most every 30s.")
+        self.log(message)
         self._last_notice = now
         self._grouped_since_notice = 0
 

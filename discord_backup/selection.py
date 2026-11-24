@@ -58,19 +58,19 @@ def select_backup(source=None, *, prompt=input, output=print, interactive=True):
             return path
     if not interactive:
         raise ValueError('Specify a backup file for unattended use; selecting a directory needs a terminal')
+    files = None
     while True:
-        files = find_backups(locations)
-        output('\nChoose a backup — newest first')
-        for index, (_, path, size) in enumerate(files, 1):
-            marker = ' [PARTIAL]' if path.name.endswith('-partial.bkup') else ''
-            output(f'  {index:>2}  {path.name}{marker}  ({size / 1024:.1f} KiB)')
-            output(f'      {path.parent}')
-        if not files:
-            output('No .bkup files found in these folders.')
-        output('  P   Enter another folder or a backup file path')
-        output('  D   Search current/default backup folders again')
-        output('  0   Cancel')
-        answer = prompt('Backup number [1], P, D, or a path: ').strip()
+        if files is None:
+            files = find_backups(locations)
+            output('\nRecent backups' if files else '\nNo backups found')
+            single_folder = len({path.parent for _, path, _ in files}) == 1
+            if single_folder:
+                output(str(files[0][1].parent))
+            for index, (_, path, _) in enumerate(files, 1):
+                marker = ' [PARTIAL]' if path.name.endswith('-partial.bkup') else ''
+                output(f'  {index:>2}  {path.name if single_folder else path}{marker}')
+            output('  P  Custom path    D  Default folders    0  Cancel')
+        answer = prompt('Backup [1]: ' if files else 'Path, D or 0: ').strip()
         if not answer and files:
             remember_backup(files[0][1])
             return files[0][1]
@@ -78,6 +78,7 @@ def select_backup(source=None, *, prompt=input, output=print, interactive=True):
             raise ValueError('Backup selection cancelled')
         if answer.lower() == 'd':
             locations = default_locations()
+            files = None
             continue
         if answer.isascii() and answer.isdigit() and len(answer) <= 3:
             number = int(answer)
@@ -93,6 +94,7 @@ def select_backup(source=None, *, prompt=input, output=print, interactive=True):
         path = Path(answer).expanduser() if answer else None
         if path is not None and path.is_dir():
             locations = [path]
+            files = None
         elif path is not None and path.is_file() and not path.is_symlink():
             remember_backup(path)
             return path
